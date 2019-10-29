@@ -94,7 +94,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		this.shardLoader = new ShardLoader(this.id, this.path, this.depth, builder.getSaveType());
 		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), this.shardLoader.createStartShard(), builder.getSaveType());
 		//creates a dummy spare shard that will never be accessed or used without first reloading it
-		this.shardCache.initSpareShard(this.shardLoader.createShard("unused"));
+		//this.shardCache.initSpareShard(this.shardLoader.createShard("unused"));
 	}
 	
 	
@@ -124,8 +124,8 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		int wordIndex = 1;
 		while(wordIndex < words.size()) {
 			nextWord = stripTokens(words.get(wordIndex));
-			this.addFollowingWordForBigram(currentBigram, nextWord);
-			//executor.execute(new AddFollowingWordTask(currentBigram, nextWord));
+			//this.addFollowingWordForBigram(currentBigram, nextWord);
+			executor.execute(new AddFollowingWordTask(currentBigram, nextWord));
 			currentBigram = new Bigram(currentBigram.getWord2(), nextWord);
 			wordIndex++;
 		}

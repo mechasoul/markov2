@@ -89,18 +89,18 @@ class ShardCache {
 	}
 	
 	synchronized DatabaseShard takeSpareShard() {
-		DatabaseShard shard;
-		while((shard = this.spareShard) == null) {
-			try {
-				this.wait();
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			}
-		}
-		this.spareShard = null;
-		this.notifyAll();
-		return shard;
-		//return this.spareShards.take();
+//		DatabaseShard shard;
+//		while((shard = this.spareShard) == null) {
+//			try {
+//				this.wait();
+//			} catch (InterruptedException e) {
+//				e.printStackTrace();
+//			}
+//		}
+//		this.spareShard = null;
+//		this.notifyAll();
+//		return shard;
+		return this.spareShards.take();
 	}
 	
 	synchronized void putSpareShard(DatabaseShard shard) {
