@@ -54,7 +54,7 @@ public class Test {
 		try (Stream<String> lines = Files.lines(Paths.get(inPath), StandardCharsets.UTF_8)){
 			tempTime1 = System.currentTimeMillis();
 			lines
-				.limit(100)
+				.limit(100000)
 				.forEach(string -> 
 			{
 				if(StringUtils.isWhitespace(string)) return;
