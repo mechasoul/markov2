@@ -48,7 +48,7 @@ public class Test {
 			.depth(2)
 			.shardCacheSize(64)
 			.saveType(SaveType.JSON)
-			.executorService(MyThreadPool.INSTANCE)
+			//.executorService(MyThreadPool.INSTANCE)
 			.build();
 		db.load();
 		List<String> testLines = null;
@@ -58,7 +58,7 @@ public class Test {
 		try (Stream<String> lines = Files.lines(Paths.get(inPath), StandardCharsets.UTF_8)){
 			tempTime1 = System.currentTimeMillis();
 			lines
-				.limit(100)
+				//.limit(100000)
 				.forEach(string -> 
 			{
 				if(StringUtils.isWhitespace(string)) return;
@@ -84,11 +84,11 @@ public class Test {
 			e1.printStackTrace();
 		} 
 		
-		try {
-			MyThreadPool.INSTANCE.awaitTermination(1, TimeUnit.MINUTES);
-		} catch (InterruptedException e1) {
-			e1.printStackTrace();
-		}
+//		try {
+//			MyThreadPool.INSTANCE.awaitTermination(1, TimeUnit.MINUTES);
+//		} catch (InterruptedException e1) {
+//			e1.printStackTrace();
+//		}
 	
 		/*
 		 * processing time for each batch of 1k messages seems to increase on average

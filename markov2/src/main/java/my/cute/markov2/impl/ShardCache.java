@@ -2,15 +2,17 @@ package my.cute.markov2.impl;
 
 import java.io.File;
 import java.util.Map.Entry;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
+import com.github.benmanes.caffeine.cache.CacheWriter;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.RemovalCause;
 
 class ShardCache {
 	
@@ -18,7 +20,7 @@ class ShardCache {
 	private static final Logger logger = LoggerFactory.getLogger(ShardCache.class);
 	
 	private final String id;
-	private AsyncLoadingCache<String, DatabaseShard> cache;
+	private LoadingCache<String, DatabaseShard> cache;
 	private final int capacity;
 	private final SaveType saveType;
 	private final ShardLoader shardLoader;
@@ -33,16 +35,27 @@ class ShardCache {
 		this.executor = executorService;
 		this.cache = Caffeine.newBuilder()
 				.maximumSize(this.capacity)
-				.<String, DatabaseShard>removalListener((prefix, shard, cause) -> shard.save(this.saveType))
 				.executor(executorService)
-				.buildAsync((prefix, executor) -> createDatabaseShardAsync(prefix, executor));
+				.writer(new CacheWriter<String, DatabaseShard>() {
+					@Override
+					public void write(@NonNull String key, @NonNull DatabaseShard value) {
+						//do nothing on entry load
+					}
+
+					@Override
+					public void delete(@NonNull String key, @Nullable DatabaseShard value,
+							@NonNull RemovalCause cause) {
+						value.save(saveType);
+					}
+				})
+				.build(prefix -> createDatabaseShard(prefix));
 		this.startShard = this.shardLoader.loadStartShard(this.shardLoader.createStartShard());
 //		(prefix, executor) -> 
 //		CompletableFuture.supplyAsync(() -> this.shardLoader.createAndLoadShard(prefix), executor)
 	}
 	
-	CompletableFuture<DatabaseShard> get(String prefix) {
-		if(prefix.equals(MarkovDatabaseImpl.START_PREFIX)) return CompletableFuture.completedFuture(this.startShard);
+	DatabaseShard get(String prefix) {
+		if(prefix.equals(MarkovDatabaseImpl.START_PREFIX)) return this.startShard;
 		return this.cache.get(prefix);
 	}
 	
@@ -50,13 +63,13 @@ class ShardCache {
 		return this.startShard;
 	}
 	
-	private CompletableFuture<DatabaseShard> createDatabaseShardAsync(String prefix, Executor executor) {
-		return CompletableFuture.supplyAsync(() -> this.shardLoader.createAndLoadShard(prefix), executor);
+	private DatabaseShard createDatabaseShard(String prefix) {
+		return this.shardLoader.createAndLoadShard(prefix);
 	}
 	
 	void save() {
-		for(Entry<String, CompletableFuture<DatabaseShard>> entry : this.cache.asMap().entrySet()) {
-			entry.getValue().thenAcceptAsync(shard -> shard.save(this.saveType), this.executor);
+		for(Entry<String, DatabaseShard> entry : this.cache.asMap().entrySet()) {
+			entry.getValue().save(this.saveType);
 		}
 		this.startShard.save(this.saveType);
 	}

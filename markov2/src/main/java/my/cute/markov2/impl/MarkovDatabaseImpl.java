@@ -111,8 +111,8 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private void addFollowingWordForBigram(Bigram bigram, String followingWord) {
-		CompletableFuture<DatabaseShard> shardFuture = this.getShardFuture(bigram);
-		shardFuture.thenAcceptAsync(shard -> shard.addFollowingWord(bigram, followingWord), this.executor);
+		DatabaseShard shard = this.getShard(bigram);
+		shard.addFollowingWord(bigram, followingWord);
 	}
 	
 	/*
@@ -120,22 +120,10 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	 * not happy with this (id rather this never returns null) but not sure how else 
 	 * to indicate to abort current operation
 	 */
-	private CompletableFuture<DatabaseShard> getShardFuture(Bigram bigram) {
+	private DatabaseShard getShard(Bigram bigram) {
 		String prefix = this.getPrefix(bigram.getWord1());
 		return this.shardCache.get(prefix);
 	}
-	
-	private CompletableFuture<DatabaseShard> getShardFuture(CompletableFuture<Bigram> bigramFuture) {
-		CompletableFuture<String> s = bigramFuture.thenApplyAsync(bigram -> this.getPrefix(bigram.getWord1()), this.executor);
-		try {
-			return this.shardCache.get(s.get());
-		} catch (InterruptedException | ExecutionException e) {
-			logger.warn("exception when getting prefix string from bigram future: " + e.getLocalizedMessage());
-			e.printStackTrace();
-			return null;
-		}
-	}
-	
 	
 	
 	/*
@@ -186,8 +174,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private CompletableFuture<String> getRandomWeightedNextWordFuture(CompletableFuture<Bigram> bigramFuture) {
-		return bigramFuture.thenCombineAsync(this.getShardFuture(bigramFuture), (bigram, shard) ->
-			shard.getFollowingWord(bigram), this.executor);
+//		return bigramFuture.thenCombineAsync(this.getShardFuture(bigramFuture), (bigram, shard) ->
+//			shard.getFollowingWord(bigram), this.executor);
+		return null;
 	}
 	
 	@Override
@@ -197,21 +186,22 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	
 	@Override
 	public String generateLine(String startingWord) {
-		StringBuilder sb = new StringBuilder();
-		sb.append(startingWord);
-		int wordCount = 1;
-		CompletableFuture<Bigram> bigramFuture = CompletableFuture.completedFuture(new Bigram(START_TOKEN, startingWord));
-		CompletableFuture<String> nextWordFuture = this.getRandomWeightedNextWordFuture(bigramFuture);
-		while(this.shouldContinueGettingWords(nextWordFuture) && wordCount < MAX_WORDS_PER_LINE) {
-			sb.append(" ");
-			nextWordFuture.thenAccept(sb::append);
-			wordCount++;
-			
-			bigramFuture = nextWordFuture.thenCombine(bigramFuture, (word, bigram) -> new Bigram(bigram.getWord2(), word));
-			nextWordFuture = this.getRandomWeightedNextWordFuture(bigramFuture);
-		}
-		
-		return sb.toString();
+//		StringBuilder sb = new StringBuilder();
+//		sb.append(startingWord);
+//		int wordCount = 1;
+//		CompletableFuture<Bigram> bigramFuture = CompletableFuture.completedFuture(new Bigram(START_TOKEN, startingWord));
+//		CompletableFuture<String> nextWordFuture = this.getRandomWeightedNextWordFuture(bigramFuture);
+//		while(this.shouldContinueGettingWords(nextWordFuture) && wordCount < MAX_WORDS_PER_LINE) {
+//			sb.append(" ");
+//			nextWordFuture.thenAccept(sb::append);
+//			wordCount++;
+//			
+//			bigramFuture = nextWordFuture.thenCombine(bigramFuture, (word, bigram) -> new Bigram(bigram.getWord2(), word));
+//			nextWordFuture = this.getRandomWeightedNextWordFuture(bigramFuture);
+//		}
+//		
+//		return sb.toString();
+		return "hello";
 	}
 	
 	private boolean shouldContinueGettingWords(CompletableFuture<String> nextWord) {
