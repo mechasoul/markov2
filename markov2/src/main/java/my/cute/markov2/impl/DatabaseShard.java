@@ -32,6 +32,7 @@ public class DatabaseShard {
 		.enableComplexMapKeySerialization()
 		.create();
 	protected static final Type DATABASE_TYPE = new TypeToken<LinkedHashMap<Bigram, FollowingWordSet>>() {}.getType();
+	private static final SaveType SAVE_TYPE = SaveType.JSON;
 	public static long saveTimer = 0;
 	public static long saveBytes = 0;
 	public static long loadBytes = 0;
@@ -119,7 +120,7 @@ public class DatabaseShard {
 	
 	
 	void save() {
-		this.save(SaveType.SERIALIZE);
+		this.save(SAVE_TYPE);
 	}
 	
 	/*
@@ -150,7 +151,7 @@ public class DatabaseShard {
 	}
 	
 	void load() {
-		this.load(SaveType.SERIALIZE);
+		this.load(SAVE_TYPE);
 	}
 	
 	synchronized void load(SaveType saveType) {

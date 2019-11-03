@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -55,6 +56,7 @@ public class Test {
 			tempTime1 = System.currentTimeMillis();
 			lines
 				.limit(100000)
+				.parallel()
 				.forEach(string -> 
 			{
 				if(StringUtils.isWhitespace(string)) return;
@@ -79,6 +81,12 @@ public class Test {
 		} catch (IOException e1) {
 			e1.printStackTrace();
 		} 
+		
+		try {
+			ForkJoinPool.commonPool().awaitTermination(10, TimeUnit.MINUTES);
+		} catch (InterruptedException e1) {
+			e1.printStackTrace();
+		}
 	
 		/*
 		 * processing time for each batch of 1k messages seems to increase on average

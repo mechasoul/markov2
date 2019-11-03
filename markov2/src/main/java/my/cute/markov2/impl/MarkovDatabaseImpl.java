@@ -11,11 +11,9 @@ import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
-
-import my.cute.markov2.MarkovDatabase;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.filefilter.FileFilterUtils;
@@ -23,25 +21,10 @@ import org.apache.commons.io.filefilter.TrueFileFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import my.cute.markov2.MarkovDatabase;
+
 public class MarkovDatabaseImpl implements MarkovDatabase {
 	
-	private class AddFollowingWordTask implements Runnable {
-		
-		private final Bigram bigram;
-		private final String followingWord;
-		
-		private AddFollowingWordTask(Bigram b, String f) {
-			this.bigram = b;
-			this.followingWord = f;
-		}
-
-		@Override
-		public void run() {
-			addFollowingWordForBigram(this.bigram, this.followingWord);
-		}
-		
-	}
-
 	private static final Logger logger = LoggerFactory.getLogger(MarkovDatabaseImpl.class);
 	
 	private static final Pattern PUNCTUATION = Pattern.compile("\\p{Punct}");
@@ -64,37 +47,26 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	private int depth;
 	private final String path;
 	private final ShardCache shardCache;
-	private final ShardLoader shardLoader;
-	private final ExecutorService executor = Executors.newFixedThreadPool(4);
 	
 	MarkovDatabaseImpl(String i, int d, String parentPath) {
 		this.id = i;
 		this.depth = d;
 		this.path = parentPath + "/" + this.id;
-		this.shardLoader = new ShardLoader(this.id, this.path, this.depth);
-		this.shardCache = new ShardCache(this.id, 10, this.shardLoader.createStartShard());
-		//creates a dummy spare shard that will never be accessed or used without first reloading it
-		this.shardCache.initSpareShard(this.shardLoader.createShard("unused"));
+		this.shardCache = new ShardCache(this.id, 10, this.depth, this.path, SaveType.JSON);
 	}
 	
 	MarkovDatabaseImpl(String i, int d, String parentPath, SaveType save) {
 		this.id = i;
 		this.depth = d;
 		this.path = parentPath + "/" + this.id;
-		this.shardLoader = new ShardLoader(this.id, this.path, this.depth, save);
-		this.shardCache = new ShardCache(this.id, 10, this.shardLoader.createStartShard(), save);
-		//creates a dummy spare shard that will never be accessed or used without first reloading it
-		this.shardCache.initSpareShard(this.shardLoader.createShard("unused"));
+		this.shardCache = new ShardCache(this.id, 10, this.depth, this.path, save);
 	}
 	
 	MarkovDatabaseImpl(MarkovDatabaseBuilder builder) {
 		this.id = builder.getId();
 		this.path = builder.getParentPath() + "/" + this.id;
 		this.depth = builder.getDepth();
-		this.shardLoader = new ShardLoader(this.id, this.path, this.depth, builder.getSaveType());
-		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), this.shardLoader.createStartShard(), builder.getSaveType());
-		//creates a dummy spare shard that will never be accessed or used without first reloading it
-		//this.shardCache.initSpareShard(this.shardLoader.createShard("unused"));
+		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), builder.getDepth(), this.path, builder.getSaveType());
 	}
 	
 	
@@ -124,8 +96,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		int wordIndex = 1;
 		while(wordIndex < words.size()) {
 			nextWord = stripTokens(words.get(wordIndex));
-			//this.addFollowingWordForBigram(currentBigram, nextWord);
-			executor.execute(new AddFollowingWordTask(currentBigram, nextWord));
+			this.addFollowingWordForBigram(currentBigram, nextWord);
 			currentBigram = new Bigram(currentBigram.getWord2(), nextWord);
 			wordIndex++;
 		}
@@ -133,24 +104,37 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private void addFollowingWordForBigram(Bigram bigram, String followingWord) {
-		DatabaseShard shard = this.getShard(bigram);
-		shard.addFollowingWord(bigram, followingWord);
-	}
-	
-	private DatabaseShard getShard(Bigram bigram) {
-		String prefix = this.getPrefix(bigram.getWord1());
-		DatabaseShard shard = this.shardCache.get(prefix);
-		if(shard != null) {
-			return shard;
-		} else {
-			if(this.shardCache.isFull()) {
-				shard = this.shardLoader.loadNewPrefix(this.shardCache.takeSpareShard(), prefix);
-			} else {
-				shard = this.shardLoader.createAndLoadShard(prefix);
-			}
-			return this.shardCache.add(shard);
+		if(bigram.getWord1().equals(START_TOKEN)) {
+			this.shardCache.getStartShard().addFollowingWord(bigram, followingWord);
+		}
+		else {
+			CompletableFuture<DatabaseShard> shardFuture = this.getShardFuture(bigram);
+			shardFuture.thenAcceptAsync(shard -> shard.addFollowingWord(bigram, followingWord));
 		}
 	}
+	
+	/*
+	 * returns null if interruptedexception occurs while waiting for spare shard
+	 * not happy with this (id rather this never returns null) but not sure how else 
+	 * to indicate to abort current operation
+	 */
+	private CompletableFuture<DatabaseShard> getShardFuture(Bigram bigram) {
+		String prefix = this.getPrefix(bigram.getWord1());
+		return this.shardCache.get(prefix);
+	}
+	
+	private CompletableFuture<DatabaseShard> getShardFuture(CompletableFuture<Bigram> bigramFuture) {
+		CompletableFuture<String> s = bigramFuture.thenApplyAsync(bigram -> this.getPrefix(bigram.getWord1()));
+		try {
+			return this.shardCache.get(s.get());
+		} catch (InterruptedException | ExecutionException e) {
+			logger.warn("exception when getting prefix string from bigram future: " + e.getLocalizedMessage());
+			e.printStackTrace();
+			return null;
+		}
+	}
+	
+	
 	
 	/*
 	 * accepts a nonempty nonwhitespace word and returns the appropriate prefix for
@@ -199,13 +183,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		return this.shardCache.getStartShard();
 	}
 	
-	private String getRandomWeightedNextWord(Bigram bigram) {
-		try {
-			return this.getShard(bigram).getFollowingWord(bigram);
-		} catch (IllegalArgumentException ex) {
-			logger.warn("exception in trying to get next word: " + ex.getLocalizedMessage());
-			return END_TOKEN;
-		}
+	private CompletableFuture<String> getRandomWeightedNextWordFuture(CompletableFuture<Bigram> bigramFuture) {
+		return bigramFuture.thenCombineAsync(this.getShardFuture(bigramFuture), (bigram, shard) ->
+			shard.getFollowingWord(bigram));
 	}
 	
 	@Override
@@ -216,30 +196,39 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	@Override
 	public String generateLine(String startingWord) {
 		StringBuilder sb = new StringBuilder();
-		Bigram currentBigram = new Bigram(START_TOKEN, startingWord);
-		sb.append(currentBigram.getWord2());
-		String nextWord = this.getRandomWeightedNextWord(currentBigram);
+		sb.append(startingWord);
 		int wordCount = 1;
-		while(!nextWord.equals(END_TOKEN) && wordCount < MAX_WORDS_PER_LINE) {
+		CompletableFuture<Bigram> bigramFuture = CompletableFuture.completedFuture(new Bigram(START_TOKEN, startingWord));
+		CompletableFuture<String> nextWordFuture = this.getRandomWeightedNextWordFuture(bigramFuture);
+		while(this.shouldContinueGettingWords(nextWordFuture) && wordCount < MAX_WORDS_PER_LINE) {
 			sb.append(" ");
-			sb.append(nextWord);
-			
-			currentBigram = new Bigram(currentBigram.getWord2(), nextWord);
-			nextWord = this.getRandomWeightedNextWord(currentBigram);
+			nextWordFuture.thenAccept(sb::append);
 			wordCount++;
+			
+			bigramFuture = nextWordFuture.thenCombine(bigramFuture, (word, bigram) -> new Bigram(bigram.getWord2(), word));
+			nextWordFuture = this.getRandomWeightedNextWordFuture(bigramFuture);
 		}
 		
 		return sb.toString();
+	}
+	
+	private boolean shouldContinueGettingWords(CompletableFuture<String> nextWord) {
+		try {
+			return nextWord.handleAsync((word, throwable) ->
+			{
+				if(word == null || word.equals(END_TOKEN)) return false;
+				else return true;
+			}).get();
+		} catch (InterruptedException | ExecutionException e) {
+			logger.warn("exception when determining whether to continue line generation loop: " + e.getLocalizedMessage());
+			e.printStackTrace();
+			return false;
+		}
 	}
 
 	@Override
 	public void save() {
 		this.shardCache.save();
-	}
-
-	@Override
-	public void load() {
-		this.shardLoader.loadStartShard(this.shardCache.getStartShard());
 	}
 
 	@Override
@@ -256,7 +245,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		String path = this.path + "/" + this.id + "_" + timeStamp + ".txt";
 		for(File file : FileUtils.listFiles(new File(this.path), FileFilterUtils.suffixFileFilter(".database"), TrueFileFilter.TRUE)) {
 			try {
-				String databaseString = this.shardLoader.getShardFromFile(file).getDatabaseString();
+				String databaseString = this.shardCache.getDatabaseString(file);
 				Files.write(Paths.get(path), databaseString.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
 			} catch (IOException e) {
 				logger.error("exception in trying to export " + this.toString() + " to text file (aborting): " + e.getLocalizedMessage());
@@ -289,6 +278,12 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		StringBuilder sb = new StringBuilder("MarkovDatabaseImpl-");
 		sb.append(this.id);
 		return sb.toString();
+	}
+
+	@Override
+	public void load() {
+		//does nothing
+		//shouldnt be specified by interface?
 	}
 
 }
