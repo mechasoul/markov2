@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
@@ -43,12 +44,13 @@ public class Test {
 		String path = "./test";
 		String inPath = "./testinput.txt";
 		File testFile = new File(inPath);
+		ExecutorService exec = MyThreadPool.INSTANCE;
 		
 		MarkovDatabase db = new MarkovDatabaseBuilder(id, path)
 			.depth(2)
 			.shardCacheSize(64)
 			.saveType(SaveType.JSON)
-			//.executorService(MyThreadPool.INSTANCE)
+			.executorService(exec)
 			.build();
 		db.load();
 		List<String> testLines = null;
@@ -58,7 +60,7 @@ public class Test {
 		try (Stream<String> lines = Files.lines(Paths.get(inPath), StandardCharsets.UTF_8)){
 			tempTime1 = System.currentTimeMillis();
 			lines
-				//.limit(100000)
+				.limit(100000)
 				.forEach(string -> 
 			{
 				if(StringUtils.isWhitespace(string)) return;
@@ -84,11 +86,12 @@ public class Test {
 			e1.printStackTrace();
 		} 
 		
-//		try {
-//			MyThreadPool.INSTANCE.awaitTermination(1, TimeUnit.MINUTES);
-//		} catch (InterruptedException e1) {
-//			e1.printStackTrace();
-//		}
+		try {
+			exec.shutdown();
+			exec.awaitTermination(4, TimeUnit.MINUTES);
+		} catch (InterruptedException e1) {
+			e1.printStackTrace();
+		}
 	
 		/*
 		 * processing time for each batch of 1k messages seems to increase on average
@@ -102,7 +105,6 @@ public class Test {
 		 * cpu time dominated (>50%) by FileOutputStream.close() called by FileUtils.writeStringToFile()
 		 * called by saveAsText() called by MyLinkedHashMap.removeEldestEntry() (cache)
 		 */
-		
 		long time2 = System.currentTimeMillis();
 		long netTime = time2 - time1;
 		System.out.println("processing finished");

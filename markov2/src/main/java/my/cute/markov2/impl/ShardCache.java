@@ -35,7 +35,7 @@ class ShardCache {
 		this.executor = executorService;
 		this.cache = Caffeine.newBuilder()
 				.maximumSize(this.capacity)
-				.executor(executorService)
+				.executor(Runnable::run)
 				.writer(new CacheWriter<String, DatabaseShard>() {
 					@Override
 					public void write(@NonNull String key, @NonNull DatabaseShard value) {
@@ -68,6 +68,7 @@ class ShardCache {
 	}
 	
 	void save() {
+		this.cache.cleanUp();
 		for(Entry<String, DatabaseShard> entry : this.cache.asMap().entrySet()) {
 			entry.getValue().save(this.saveType);
 		}

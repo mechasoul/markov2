@@ -16,6 +16,8 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
@@ -31,8 +33,8 @@ public class DatabaseShard {
 	protected static final Gson GSON = new GsonBuilder()
 		.enableComplexMapKeySerialization()
 		.create();
-	protected static final Type DATABASE_TYPE = new TypeToken<LinkedHashMap<Bigram, FollowingWordSet>>() {}.getType();
-	private static final SaveType SAVE_TYPE = SaveType.JSON;
+	protected static final Type DATABASE_TYPE = new TypeToken<ConcurrentHashMap<Bigram, FollowingWordSet>>() {}.getType();
+	private static final SaveType DEFAULT_SAVE_TYPE = SaveType.JSON;
 	public static long saveTimer = 0;
 	public static long saveBytes = 0;
 	public static long loadBytes = 0;
@@ -50,8 +52,7 @@ public class DatabaseShard {
 	 */
 	protected String prefix;
 	protected Path path;
-	protected Map<Bigram, FollowingWordSet> database;
-	private final Object prefixLock = new Object();
+	protected ConcurrentMap<Bigram, FollowingWordSet> database;
 	
 	public DatabaseShard(String id, String p, String parentPath, int depth) {
 		this.parentDatabaseId = id;
@@ -64,7 +65,7 @@ public class DatabaseShard {
 			e.printStackTrace();
 		}
 		this.path = Paths.get(pathString);
-		this.database = new LinkedHashMap<Bigram, FollowingWordSet>(6);
+		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(6);
 	}
 	
 	public DatabaseShard(String id, String p, String parentPath) {
@@ -74,7 +75,7 @@ public class DatabaseShard {
 	/*
 	 * returns true if new entry in followingwordset was created as a result of this call
 	 */
-	public synchronized boolean addFollowingWord(Bigram bigram, String followingWord) {
+	public boolean addFollowingWord(Bigram bigram, String followingWord) {
 		FollowingWordSet followingWordSet = this.database.get(bigram);
 		if(followingWordSet != null) {
 			followingWordSet.addWord(followingWord);
@@ -93,34 +94,16 @@ public class DatabaseShard {
 	 * throws IllegalArgumentException if the given bigram isn't present in the shard
 	 * (shouldn't happen)
 	 */
-	synchronized String getFollowingWord(Bigram bigram) throws IllegalArgumentException {
+	String getFollowingWord(Bigram bigram) throws IllegalArgumentException {
 		FollowingWordSet followingWordSet = this.database.get(bigram);
 		if(followingWordSet == null) throw new IllegalArgumentException(bigram.toString() + " not found in " + this.toString());
 		
 		return followingWordSet.getRandomWeightedWord();
 	}
 	
-	synchronized void loadPrefix(String prefix, String parentPath, int depth, SaveType saveType) {
-		String pathString;
-		synchronized(this.prefixLock) {
-			this.prefix = prefix;
-			pathString = this.determinePath(parentPath, depth);
-		}
-		this.database.clear();
-		this.database = new LinkedHashMap<Bigram, FollowingWordSet>(6);
-		try {
-			FileUtils.forceMkdirParent(new File(pathString));
-		} catch (IOException e) {
-			logger.error("IOException on creating parent directory for shard " + this.toString() + ": " + e.getLocalizedMessage());
-			e.printStackTrace();
-		}
-		this.path = Paths.get(pathString);
-		this.load(saveType);
-	}
-	
 	
 	void save() {
-		this.save(SAVE_TYPE);
+		this.save(DEFAULT_SAVE_TYPE);
 	}
 	
 	/*
@@ -130,8 +113,7 @@ public class DatabaseShard {
 	 * should be fine for now though since this project is entirely localized
 	 * returns true if save successful, false if exception encountered
 	 */
-	synchronized void save(SaveType saveType) {
-		long time1 = System.currentTimeMillis();
+	void save(SaveType saveType) {
 		if(saveType == SaveType.JSON) {
 			try {
 				this.saveAsText();
@@ -147,14 +129,13 @@ public class DatabaseShard {
 				e.printStackTrace();
 			}
 		}
-		saveTimer += (System.currentTimeMillis() - time1);
 	}
 	
 	void load() {
-		this.load(SAVE_TYPE);
+		this.load(DEFAULT_SAVE_TYPE);
 	}
 	
-	synchronized void load(SaveType saveType) {
+	void load(SaveType saveType) {
 		if(saveType == SaveType.JSON) {
 			try {
 				this.loadFromText();
@@ -184,6 +165,7 @@ public class DatabaseShard {
 	void loadFromText() throws FileNotFoundException, NoSuchFileException, IOException {
 		String json = new String(Files.readAllBytes(this.path), StandardCharsets.UTF_8);
 		this.database = GSON.fromJson(json, DATABASE_TYPE); 
+		if(this.database == null) System.out.println(json);
 	}
 	
 	void saveAsObject() throws IOException {
@@ -197,7 +179,7 @@ public class DatabaseShard {
 	void loadFromObject() throws FileNotFoundException, IOException, ClassNotFoundException {
 			FileInputStream fileInputStream = new FileInputStream(this.path.toString());
 			ObjectInputStream objectInputStream = new ObjectInputStream(fileInputStream);
-			this.database = (Map<Bigram, FollowingWordSet>) objectInputStream.readObject();
+			this.database = (ConcurrentMap<Bigram, FollowingWordSet>) objectInputStream.readObject();
 			objectInputStream.close();
 	}
 	
@@ -230,12 +212,6 @@ public class DatabaseShard {
 		sb.append(this.prefix);
 		sb.append(".database");
 		return sb.toString();
-	}
-
-	public String getPrefix() {
-		synchronized(this.prefixLock) {
-			return prefix;
-		}
 	}
 
 	@Override

@@ -43,13 +43,6 @@ public final class ShardLoader {
 		return shard;
 	}
 	
-	DatabaseShard loadNewPrefix(DatabaseShard shard, String prefix) {
-		long time1 = System.currentTimeMillis();
-		shard.loadPrefix(prefix, this.path, this.depth, this.saveType);
-		loadTimer += (System.currentTimeMillis() - time1);
-		return shard;
-	}
-	
 	StartDatabaseShard loadStartShard(StartDatabaseShard shard) {
 		long time1 = System.currentTimeMillis();
 		shard.load(this.saveType);
