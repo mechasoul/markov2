@@ -13,6 +13,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.StandardOpenOption;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ConcurrentMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -89,7 +90,7 @@ class StartDatabaseShard extends DatabaseShard {
 	void loadFromObject() throws FileNotFoundException, IOException, ClassNotFoundException {
 		FileInputStream fileInputStream = new FileInputStream(this.path.toString());
 		ObjectInputStream objectInputStream = new ObjectInputStream(fileInputStream);
-		this.database = (Map<Bigram, FollowingWordSet>) objectInputStream.readObject();
+		this.database = (ConcurrentMap<Bigram, FollowingWordSet>) objectInputStream.readObject();
 		this.totalCount = (Integer) objectInputStream.readObject();
 		objectInputStream.close();
 	}

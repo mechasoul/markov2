@@ -14,8 +14,9 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
@@ -31,7 +32,7 @@ public class DatabaseShard {
 	protected static final Gson GSON = new GsonBuilder()
 		.enableComplexMapKeySerialization()
 		.create();
-	protected static final Type DATABASE_TYPE = new TypeToken<LinkedHashMap<Bigram, FollowingWordSet>>() {}.getType();
+	protected static final Type DATABASE_TYPE = new TypeToken<ConcurrentHashMap<Bigram, FollowingWordSet>>() {}.getType();
 	public static long saveTimer = 0;
 	public static long saveBytes = 0;
 	public static long loadBytes = 0;
@@ -49,7 +50,7 @@ public class DatabaseShard {
 	 */
 	protected String prefix;
 	protected Path path;
-	protected Map<Bigram, FollowingWordSet> database;
+	protected ConcurrentMap<Bigram, FollowingWordSet> database;
 	private final Object prefixLock = new Object();
 	
 	public DatabaseShard(String id, String p, String parentPath, int depth) {
@@ -63,7 +64,7 @@ public class DatabaseShard {
 			e.printStackTrace();
 		}
 		this.path = Paths.get(pathString);
-		this.database = new LinkedHashMap<Bigram, FollowingWordSet>(6);
+		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(6);
 	}
 	
 	public DatabaseShard(String id, String p, String parentPath) {
@@ -106,7 +107,7 @@ public class DatabaseShard {
 			pathString = this.determinePath(parentPath, depth);
 		}
 		this.database.clear();
-		this.database = new LinkedHashMap<Bigram, FollowingWordSet>(6);
+		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(6);
 		try {
 			FileUtils.forceMkdirParent(new File(pathString));
 		} catch (IOException e) {
@@ -196,7 +197,7 @@ public class DatabaseShard {
 	void loadFromObject() throws FileNotFoundException, IOException, ClassNotFoundException {
 			FileInputStream fileInputStream = new FileInputStream(this.path.toString());
 			ObjectInputStream objectInputStream = new ObjectInputStream(fileInputStream);
-			this.database = (Map<Bigram, FollowingWordSet>) objectInputStream.readObject();
+			this.database = (ConcurrentMap<Bigram, FollowingWordSet>) objectInputStream.readObject();
 			objectInputStream.close();
 	}
 	
