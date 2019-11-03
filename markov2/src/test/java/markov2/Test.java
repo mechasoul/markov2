@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
@@ -28,6 +29,7 @@ import my.cute.markov2.impl.DatabaseShard;
 import my.cute.markov2.impl.FollowingWordSet;
 import my.cute.markov2.impl.MarkovDatabaseBuilder;
 import my.cute.markov2.impl.MarkovDatabaseImpl;
+import my.cute.markov2.impl.MyThreadPool;
 import my.cute.markov2.impl.SaveType;
 import my.cute.markov2.impl.ShardLoader;
 
@@ -46,6 +48,7 @@ public class Test {
 			.depth(2)
 			.shardCacheSize(64)
 			.saveType(SaveType.JSON)
+			.executorService(MyThreadPool.INSTANCE)
 			.build();
 		db.load();
 		List<String> testLines = null;
@@ -55,8 +58,7 @@ public class Test {
 		try (Stream<String> lines = Files.lines(Paths.get(inPath), StandardCharsets.UTF_8)){
 			tempTime1 = System.currentTimeMillis();
 			lines
-				.limit(100000)
-				.parallel()
+				.limit(100)
 				.forEach(string -> 
 			{
 				if(StringUtils.isWhitespace(string)) return;
@@ -83,7 +85,7 @@ public class Test {
 		} 
 		
 		try {
-			ForkJoinPool.commonPool().awaitTermination(10, TimeUnit.MINUTES);
+			MyThreadPool.INSTANCE.awaitTermination(1, TimeUnit.MINUTES);
 		} catch (InterruptedException e1) {
 			e1.printStackTrace();
 		}

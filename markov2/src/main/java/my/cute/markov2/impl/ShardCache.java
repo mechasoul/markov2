@@ -4,6 +4,7 @@ import java.io.File;
 import java.util.Map.Entry;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,15 +23,18 @@ class ShardCache {
 	private final SaveType saveType;
 	private final ShardLoader shardLoader;
 	private final StartDatabaseShard startShard;
+	private final ExecutorService executor;
 	
-	ShardCache(String i, int c, int depth, String path, SaveType save) {
+	ShardCache(String i, int c, int depth, String path, SaveType save, ExecutorService executorService) {
 		this.id = i;
 		this.capacity = c;
 		this.saveType = save;
 		this.shardLoader = new ShardLoader(this.id, path, depth, this.saveType);
+		this.executor = executorService;
 		this.cache = Caffeine.newBuilder()
 				.maximumSize(this.capacity)
 				.<String, DatabaseShard>removalListener((prefix, shard, cause) -> shard.save(this.saveType))
+				.executor(executorService)
 				.buildAsync((prefix, executor) -> createDatabaseShardAsync(prefix, executor));
 		this.startShard = this.shardLoader.loadStartShard(this.shardLoader.createStartShard());
 //		(prefix, executor) -> 
@@ -52,7 +56,7 @@ class ShardCache {
 	
 	void save() {
 		for(Entry<String, CompletableFuture<DatabaseShard>> entry : this.cache.asMap().entrySet()) {
-			entry.getValue().thenAcceptAsync(shard -> shard.save(this.saveType));
+			entry.getValue().thenAcceptAsync(shard -> shard.save(this.saveType), this.executor);
 		}
 		this.startShard.save(this.saveType);
 	}

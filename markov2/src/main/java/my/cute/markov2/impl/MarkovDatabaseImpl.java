@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ForkJoinPool;
 import java.util.regex.Pattern;
 
 import org.apache.commons.io.FileUtils;
@@ -47,26 +49,31 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	private int depth;
 	private final String path;
 	private final ShardCache shardCache;
+	private final ExecutorService executor;
 	
 	MarkovDatabaseImpl(String i, int d, String parentPath) {
 		this.id = i;
 		this.depth = d;
 		this.path = parentPath + "/" + this.id;
-		this.shardCache = new ShardCache(this.id, 10, this.depth, this.path, SaveType.JSON);
+		this.executor = ForkJoinPool.commonPool();
+		this.shardCache = new ShardCache(this.id, 10, this.depth, this.path, SaveType.JSON, this.executor);
 	}
 	
 	MarkovDatabaseImpl(String i, int d, String parentPath, SaveType save) {
 		this.id = i;
 		this.depth = d;
 		this.path = parentPath + "/" + this.id;
-		this.shardCache = new ShardCache(this.id, 10, this.depth, this.path, save);
+		this.executor = ForkJoinPool.commonPool();
+		this.shardCache = new ShardCache(this.id, 10, this.depth, this.path, save, this.executor);
 	}
 	
 	MarkovDatabaseImpl(MarkovDatabaseBuilder builder) {
 		this.id = builder.getId();
 		this.path = builder.getParentPath() + "/" + this.id;
 		this.depth = builder.getDepth();
-		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), builder.getDepth(), this.path, builder.getSaveType());
+		this.executor = builder.getExecutorService();
+		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), builder.getDepth(), this.path, builder.getSaveType(),
+				this.executor);
 	}
 	
 	
@@ -104,13 +111,8 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private void addFollowingWordForBigram(Bigram bigram, String followingWord) {
-		if(bigram.getWord1().equals(START_TOKEN)) {
-			this.shardCache.getStartShard().addFollowingWord(bigram, followingWord);
-		}
-		else {
-			CompletableFuture<DatabaseShard> shardFuture = this.getShardFuture(bigram);
-			shardFuture.thenAcceptAsync(shard -> shard.addFollowingWord(bigram, followingWord));
-		}
+		CompletableFuture<DatabaseShard> shardFuture = this.getShardFuture(bigram);
+		shardFuture.thenAcceptAsync(shard -> shard.addFollowingWord(bigram, followingWord), this.executor);
 	}
 	
 	/*
@@ -124,7 +126,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private CompletableFuture<DatabaseShard> getShardFuture(CompletableFuture<Bigram> bigramFuture) {
-		CompletableFuture<String> s = bigramFuture.thenApplyAsync(bigram -> this.getPrefix(bigram.getWord1()));
+		CompletableFuture<String> s = bigramFuture.thenApplyAsync(bigram -> this.getPrefix(bigram.getWord1()), this.executor);
 		try {
 			return this.shardCache.get(s.get());
 		} catch (InterruptedException | ExecutionException e) {
@@ -185,7 +187,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	
 	private CompletableFuture<String> getRandomWeightedNextWordFuture(CompletableFuture<Bigram> bigramFuture) {
 		return bigramFuture.thenCombineAsync(this.getShardFuture(bigramFuture), (bigram, shard) ->
-			shard.getFollowingWord(bigram));
+			shard.getFollowingWord(bigram), this.executor);
 	}
 	
 	@Override
@@ -218,7 +220,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 			{
 				if(word == null || word.equals(END_TOKEN)) return false;
 				else return true;
-			}).get();
+			}, this.executor).get();
 		} catch (InterruptedException | ExecutionException e) {
 			logger.warn("exception when determining whether to continue line generation loop: " + e.getLocalizedMessage());
 			e.printStackTrace();
