@@ -15,6 +15,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 
 import org.apache.commons.io.FileUtils;
@@ -50,30 +51,16 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	private final String path;
 	private final ShardCache shardCache;
 	private final ExecutorService executor;
-	
-	MarkovDatabaseImpl(String i, int d, String parentPath) {
-		this.id = i;
-		this.depth = d;
-		this.path = parentPath + "/" + this.id;
-		this.executor = ForkJoinPool.commonPool();
-		this.shardCache = new ShardCache(this.id, 10, this.depth, this.path, SaveType.JSON, this.executor);
-	}
-	
-	MarkovDatabaseImpl(String i, int d, String parentPath, SaveType save) {
-		this.id = i;
-		this.depth = d;
-		this.path = parentPath + "/" + this.id;
-		this.executor = ForkJoinPool.commonPool();
-		this.shardCache = new ShardCache(this.id, 10, this.depth, this.path, save, this.executor);
-	}
+	private final PrefixLockSet lockSet;
 	
 	MarkovDatabaseImpl(MarkovDatabaseBuilder builder) {
 		this.id = builder.getId();
 		this.path = builder.getParentPath() + "/" + this.id;
 		this.depth = builder.getDepth();
 		this.executor = builder.getExecutorService();
+		this.lockSet = new PrefixLockSet(this.depth);
 		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), builder.getDepth(), this.path, builder.getSaveType(),
-				this.executor);
+				this.executor, this.lockSet);
 	}
 	
 	
@@ -111,8 +98,15 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private void addFollowingWordForBigram(Bigram bigram, String followingWord) {
-		DatabaseShard shard = this.getShard(bigram);
-		shard.addFollowingWord(bigram, followingWord);
+//		DatabaseShard shard = this.getShard(bigram);
+//		ReentrantLock lock = this.lockSet.get(shard.getPrefix());
+//		lock.lock();
+//		try {
+//			shard.addFollowingWord(bigram, followingWord);
+//		} finally {
+//			lock.unlock();
+//		}
+		this.shardCache.process(this.getPrefix(bigram.getWord1()), bigram, followingWord);
 	}
 	
 	/*
@@ -276,6 +270,12 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	public void load() {
 		//does nothing
 		//shouldnt be specified by interface?
+	}
+
+	@Override
+	public int getSize() {
+		// TODO Auto-generated method stub
+		return 0;
 	}
 
 }

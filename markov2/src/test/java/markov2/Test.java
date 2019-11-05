@@ -44,7 +44,7 @@ public class Test {
 		String path = "./test";
 		String inPath = "./testinput.txt";
 		File testFile = new File(inPath);
-		ExecutorService exec = MyThreadPool.INSTANCE;
+		ForkJoinPool exec = ForkJoinPool.commonPool();
 		
 		MarkovDatabase db = new MarkovDatabaseBuilder(id, path)
 			.depth(2)
@@ -87,6 +87,7 @@ public class Test {
 		} 
 		
 		try {
+			exec.awaitQuiescence(4, TimeUnit.MINUTES);
 			exec.shutdown();
 			exec.awaitTermination(4, TimeUnit.MINUTES);
 		} catch (InterruptedException e1) {

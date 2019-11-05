@@ -14,6 +14,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,8 +27,8 @@ class StartDatabaseShard extends DatabaseShard {
 	
 	private int totalCount;
 	
-	StartDatabaseShard(String id, String p, String parentPath) {
-		super(id, p, parentPath);
+	StartDatabaseShard(String id, String p, String parentPath, ReentrantLock lock) {
+		super(id, p, parentPath, lock);
 		this.totalCount = 0;
 	}
 	

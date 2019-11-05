@@ -41,4 +41,6 @@ public interface MarkovDatabase {
 	public void exportToTextFile();
 	
 	public String getId();
+	
+	public int getSize();
 }

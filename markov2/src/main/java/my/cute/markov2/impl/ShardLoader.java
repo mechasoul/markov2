@@ -8,38 +8,34 @@ public final class ShardLoader {
 	private final String path;
 	private final int depth;
 	private final SaveType saveType;
+	private final PrefixLockSet lockSet;
 	
 	public static long loadTimer = 0;
 	
-	ShardLoader(String i, String p, int d) {
-		this.id = i;
-		this.path = p;
-		this.depth = d;
-		this.saveType = SaveType.SERIALIZE;
-	}
-	
-	ShardLoader(String i, String p, int d, SaveType save) {
+	ShardLoader(String i, String p, int d, SaveType save, PrefixLockSet lockSet) {
 		this.id = i;
 		this.path = p;
 		this.depth = d;
 		this.saveType = save;
+		this.lockSet = lockSet;
 	}
 	
 	DatabaseShard createShard(String prefix) {
-		DatabaseShard shard = new DatabaseShard(this.id, prefix, this.path, this.depth);
+		DatabaseShard shard = new DatabaseShard(this.id, prefix, this.path, this.depth, this.lockSet.get(prefix));
 		return shard;
 	}
 	
 	DatabaseShard createAndLoadShard(String prefix) {
 		long time1 = System.currentTimeMillis();
-		DatabaseShard shard = new DatabaseShard(this.id, prefix, this.path, this.depth);
+		DatabaseShard shard = new DatabaseShard(this.id, prefix, this.path, this.depth, this.lockSet.get(prefix));
 		shard.load(this.saveType);
 		loadTimer += (System.currentTimeMillis() - time1);
 		return shard;
 	}
 	
 	StartDatabaseShard createStartShard() {
-		StartDatabaseShard shard = new StartDatabaseShard(this.id, MarkovDatabaseImpl.START_PREFIX, this.path);
+		StartDatabaseShard shard = new StartDatabaseShard(this.id, MarkovDatabaseImpl.START_PREFIX, this.path, 
+					this.lockSet.get(MarkovDatabaseImpl.START_PREFIX));
 		return shard;
 	}
 	

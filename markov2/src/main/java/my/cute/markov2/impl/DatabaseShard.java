@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
@@ -53,8 +54,9 @@ public class DatabaseShard {
 	protected String prefix;
 	protected Path path;
 	protected ConcurrentMap<Bigram, FollowingWordSet> database;
+	protected final ReentrantLock prefixLock;
 	
-	public DatabaseShard(String id, String p, String parentPath, int depth) {
+	public DatabaseShard(String id, String p, String parentPath, int depth, ReentrantLock lock) {
 		this.parentDatabaseId = id;
 		this.prefix = p;
 		String pathString = this.determinePath(parentPath, depth);
@@ -66,10 +68,11 @@ public class DatabaseShard {
 		}
 		this.path = Paths.get(pathString);
 		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(6);
+		this.prefixLock = lock;
 	}
 	
-	public DatabaseShard(String id, String p, String parentPath) {
-		this(id, p, parentPath, 0);
+	public DatabaseShard(String id, String p, String parentPath, ReentrantLock lock) {
+		this(id, p, parentPath, 0, lock);
 	}
 	
 	/*
@@ -114,21 +117,26 @@ public class DatabaseShard {
 	 * returns true if save successful, false if exception encountered
 	 */
 	void save(SaveType saveType) {
-		if(saveType == SaveType.JSON) {
-			try {
-				this.saveAsText();
-			} catch (IOException e) {
-				logger.error("couldn't save (json) " + this.toString() + ": " + e.getLocalizedMessage());
-				e.printStackTrace();
+//		this.prefixLock.lock();
+//		try {
+			if(saveType == SaveType.JSON) {
+				try {
+					this.saveAsText();
+				} catch (IOException e) {
+					logger.error("couldn't save (json) " + this.toString() + ": " + e.getLocalizedMessage());
+					e.printStackTrace();
+				}
+			} else {
+				try {
+					this.saveAsObject();
+				} catch (IOException e) {
+					logger.error("couldn't save (serialize) " + this.toString() + ": " + e.getLocalizedMessage());
+					e.printStackTrace();
+				}
 			}
-		} else {
-			try {
-				this.saveAsObject();
-			} catch (IOException e) {
-				logger.error("couldn't save (serialize) " + this.toString() + ": " + e.getLocalizedMessage());
-				e.printStackTrace();
-			}
-		}
+//		} finally {
+//			this.prefixLock.unlock();
+//		}
 	}
 	
 	void load() {
@@ -136,25 +144,30 @@ public class DatabaseShard {
 	}
 	
 	void load(SaveType saveType) {
-		if(saveType == SaveType.JSON) {
-			try {
-				this.loadFromText();
-			} catch (FileNotFoundException | NoSuchFileException e) {
-				//logger.info("couldn't load (json) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
-			} catch (IOException e) {
-				logger.error("couldn't load (json) " + this.toString() + ": " + e.getLocalizedMessage());
-				e.printStackTrace();
+//		this.prefixLock.lock();
+//		try {
+			if(saveType == SaveType.JSON) {
+				try {
+					this.loadFromText();
+				} catch (FileNotFoundException | NoSuchFileException e) {
+					//logger.info("couldn't load (json) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
+				} catch (IOException e) {
+					logger.error("couldn't load (json) " + this.toString() + ": " + e.getLocalizedMessage());
+					e.printStackTrace();
+				}
+			} else {
+				try {
+					this.loadFromObject();
+				} catch (FileNotFoundException e) {
+					//logger.info("couldn't load (deserialize) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
+				} catch (IOException | ClassNotFoundException e) {
+					logger.error("couldn't load (deserialize) " + this.toString() + ": " + e.getLocalizedMessage());
+					e.printStackTrace();
+				}
 			}
-		} else {
-			try {
-				this.loadFromObject();
-			} catch (FileNotFoundException e) {
-				//logger.info("couldn't load (deserialize) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
-			} catch (IOException | ClassNotFoundException e) {
-				logger.error("couldn't load (deserialize) " + this.toString() + ": " + e.getLocalizedMessage());
-				e.printStackTrace();
-			}
-		}
+//		} finally {
+//			this.prefixLock.unlock();
+//		}
 	}
 	
 	void saveAsText() throws IOException {
@@ -258,5 +271,9 @@ public class DatabaseShard {
 			sb.append("}\r\n");
 		}
 		return sb.toString();
+	}
+
+	String getPrefix() {
+		return prefix;
 	}
 }
