@@ -14,8 +14,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.ReentrantLock;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,8 +25,8 @@ class StartDatabaseShard extends DatabaseShard {
 	
 	private int totalCount;
 	
-	StartDatabaseShard(String id, String p, String parentPath, ReentrantLock lock) {
-		super(id, p, parentPath, lock);
+	StartDatabaseShard(String id, String p, String parentPath) {
+		super(id, p, parentPath);
 		this.totalCount = 0;
 	}
 	
@@ -42,7 +40,7 @@ class StartDatabaseShard extends DatabaseShard {
 	/*
 	 * gets a random word used to start a message, weighted by word use
 	 * in the start shard, all bigrams have word1 = START_TOKEN, and word2 = actual starting word
-	 * 
+	 * O(n) but its expensive on memory to get faster than that and memory is more of a premium
 	 */
 	String getRandomWeightedStartWord() {
 		String word = "";
@@ -55,8 +53,11 @@ class StartDatabaseShard extends DatabaseShard {
 				count -= entry.getValue().getTotalWordCount();
 			}
 		}
-		//should never actually return empty string - sum of totalWordCount over all entries
-		//should be the same as this.totalCount
+		
+		/* 
+		 * should never actually return empty string - sum of totalWordCount over all entries
+		 * should be the same as this.totalCount
+		 */
 		return word;
 	}
 	

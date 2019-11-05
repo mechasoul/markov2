@@ -26,7 +26,6 @@ import com.google.gson.reflect.TypeToken;
 
 import my.cute.markov2.MarkovDatabase;
 import my.cute.markov2.impl.Bigram;
-import my.cute.markov2.impl.DatabaseShard;
 import my.cute.markov2.impl.FollowingWordSet;
 import my.cute.markov2.impl.MarkovDatabaseBuilder;
 import my.cute.markov2.impl.MarkovDatabaseImpl;
@@ -68,18 +67,9 @@ public class Test {
 				count++;
 				if(count % 1000 == 0) {
 					long tempTime2 = System.currentTimeMillis();
-					double readRate = ShardLoader.loadTimer == 0 ? 0.0 : (((double)DatabaseShard.loadBytes) / ShardLoader.loadTimer) / 1000.0;
-					double writeRate = DatabaseShard.saveTimer == 0 ? 0.0 : (((double)DatabaseShard.saveBytes) / DatabaseShard.saveTimer) / 1000.0;
 					System.out.print(count + " - ");
-					System.out.print(tempTime2 - tempTime1);
-					System.out.print(", total i/o: " + (ShardLoader.loadTimer + DatabaseShard.saveTimer) + ", load time: " 
-							+ ShardLoader.loadTimer + ", save time: " + DatabaseShard.saveTimer);
-					System.out.println(", read: " + readRate + " MB/s, write: " + writeRate + " MB/s");
+					System.out.println(tempTime2 - tempTime1);
 					tempTime1 = tempTime2;
-					ShardLoader.loadTimer = 0;
-					DatabaseShard.saveTimer = 0;
-					DatabaseShard.saveBytes = 0;
-					DatabaseShard.loadBytes = 0;
 				}
 			});
 		} catch (IOException e1) {

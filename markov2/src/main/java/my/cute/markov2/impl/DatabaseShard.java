@@ -14,11 +14,9 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
@@ -28,7 +26,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
-public class DatabaseShard {
+class DatabaseShard {
 
 	private static final Logger logger = LoggerFactory.getLogger(DatabaseShard.class);
 	protected static final Gson GSON = new GsonBuilder()
@@ -36,9 +34,6 @@ public class DatabaseShard {
 		.create();
 	protected static final Type DATABASE_TYPE = new TypeToken<ConcurrentHashMap<Bigram, FollowingWordSet>>() {}.getType();
 	private static final SaveType DEFAULT_SAVE_TYPE = SaveType.JSON;
-	public static long saveTimer = 0;
-	public static long saveBytes = 0;
-	public static long loadBytes = 0;
 	
 	protected final String parentDatabaseId;
 	/*
@@ -54,9 +49,8 @@ public class DatabaseShard {
 	protected String prefix;
 	protected Path path;
 	protected ConcurrentMap<Bigram, FollowingWordSet> database;
-	protected final ReentrantLock prefixLock;
 	
-	public DatabaseShard(String id, String p, String parentPath, int depth, ReentrantLock lock) {
+	DatabaseShard(String id, String p, String parentPath, int depth) {
 		this.parentDatabaseId = id;
 		this.prefix = p;
 		String pathString = this.determinePath(parentPath, depth);
@@ -68,17 +62,19 @@ public class DatabaseShard {
 		}
 		this.path = Paths.get(pathString);
 		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(6);
-		this.prefixLock = lock;
 	}
 	
-	public DatabaseShard(String id, String p, String parentPath, ReentrantLock lock) {
-		this(id, p, parentPath, 0, lock);
+	DatabaseShard(String id, String p, String parentPath) {
+		this(id, p, parentPath, 0);
 	}
 	
 	/*
 	 * returns true if new entry in followingwordset was created as a result of this call
+	 * maybe source of all the concurrency problems? this is a check-then-act race i think
+	 * i feel like its fine though? but maybe with the addNewBigram() stuff some entries fall through
+	 * not sure how it wasn't working properly when we were synchronizing on prefix locks tho? whatever
 	 */
-	public boolean addFollowingWord(Bigram bigram, String followingWord) {
+	boolean addFollowingWord(Bigram bigram, String followingWord) {
 		FollowingWordSet followingWordSet = this.database.get(bigram);
 		if(followingWordSet != null) {
 			followingWordSet.addWord(followingWord);
@@ -117,26 +113,21 @@ public class DatabaseShard {
 	 * returns true if save successful, false if exception encountered
 	 */
 	void save(SaveType saveType) {
-//		this.prefixLock.lock();
-//		try {
-			if(saveType == SaveType.JSON) {
-				try {
-					this.saveAsText();
-				} catch (IOException e) {
-					logger.error("couldn't save (json) " + this.toString() + ": " + e.getLocalizedMessage());
-					e.printStackTrace();
-				}
-			} else {
-				try {
-					this.saveAsObject();
-				} catch (IOException e) {
-					logger.error("couldn't save (serialize) " + this.toString() + ": " + e.getLocalizedMessage());
-					e.printStackTrace();
-				}
+		if(saveType == SaveType.JSON) {
+			try {
+				this.saveAsText();
+			} catch (IOException e) {
+				logger.error("couldn't save (json) " + this.toString() + ": " + e.getLocalizedMessage());
+				e.printStackTrace();
 			}
-//		} finally {
-//			this.prefixLock.unlock();
-//		}
+		} else {
+			try {
+				this.saveAsObject();
+			} catch (IOException e) {
+				logger.error("couldn't save (serialize) " + this.toString() + ": " + e.getLocalizedMessage());
+				e.printStackTrace();
+			}
+		}
 	}
 	
 	void load() {
@@ -144,30 +135,25 @@ public class DatabaseShard {
 	}
 	
 	void load(SaveType saveType) {
-//		this.prefixLock.lock();
-//		try {
-			if(saveType == SaveType.JSON) {
-				try {
-					this.loadFromText();
-				} catch (FileNotFoundException | NoSuchFileException e) {
-					//logger.info("couldn't load (json) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
-				} catch (IOException e) {
-					logger.error("couldn't load (json) " + this.toString() + ": " + e.getLocalizedMessage());
-					e.printStackTrace();
-				}
-			} else {
-				try {
-					this.loadFromObject();
-				} catch (FileNotFoundException e) {
-					//logger.info("couldn't load (deserialize) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
-				} catch (IOException | ClassNotFoundException e) {
-					logger.error("couldn't load (deserialize) " + this.toString() + ": " + e.getLocalizedMessage());
-					e.printStackTrace();
-				}
+		if(saveType == SaveType.JSON) {
+			try {
+				this.loadFromText();
+			} catch (FileNotFoundException | NoSuchFileException e) {
+				//logger.info("couldn't load (json) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
+			} catch (IOException e) {
+				logger.error("couldn't load (json) " + this.toString() + ": " + e.getLocalizedMessage());
+				e.printStackTrace();
 			}
-//		} finally {
-//			this.prefixLock.unlock();
-//		}
+		} else {
+			try {
+				this.loadFromObject();
+			} catch (FileNotFoundException e) {
+				//logger.info("couldn't load (deserialize) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
+			} catch (IOException | ClassNotFoundException e) {
+				logger.error("couldn't load (deserialize) " + this.toString() + ": " + e.getLocalizedMessage());
+				e.printStackTrace();
+			}
+		}
 	}
 	
 	void saveAsText() throws IOException {
@@ -238,7 +224,7 @@ public class DatabaseShard {
 		return builder.toString();
 	}
 	
-	public String toStringFull() {
+	String toStringFull() {
 		StringBuilder builder = new StringBuilder();
 		builder.append("DatabaseShard [parentDatabaseId=");
 		builder.append(parentDatabaseId);
@@ -250,7 +236,11 @@ public class DatabaseShard {
 		return builder.toString();
 	}
 	
-	public String getDatabaseString() {
+	/*
+	 * more human readable toString() basically
+	 * maybe this shouuld just be that
+	 */
+	String getDatabaseString() {
 		StringBuilder sb = new StringBuilder();
 		for(Map.Entry<Bigram, FollowingWordSet> bigramEntry : this.database.entrySet()) {
 			sb.append("(");

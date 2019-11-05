@@ -11,11 +11,6 @@ import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 
 import org.apache.commons.io.FileUtils;
@@ -35,7 +30,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	static final String TOTAL_TOKEN = "<_total>";
 	static final String END_TOKEN = "<_end>";
 	private static final Map<String, String> tokenReplacements;
-	public static final String ZERO_DEPTH_PREFIX = "~database";
+	static final String ZERO_DEPTH_PREFIX = "~database";
 	static final String START_PREFIX = "~start";
 	static final int MAX_WORDS_PER_LINE = 256;
 	
@@ -50,17 +45,13 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	private int depth;
 	private final String path;
 	private final ShardCache shardCache;
-	private final ExecutorService executor;
-	private final PrefixLockSet lockSet;
 	
 	MarkovDatabaseImpl(MarkovDatabaseBuilder builder) {
 		this.id = builder.getId();
 		this.path = builder.getParentPath() + "/" + this.id;
 		this.depth = builder.getDepth();
-		this.executor = builder.getExecutorService();
-		this.lockSet = new PrefixLockSet(this.depth);
 		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), builder.getDepth(), this.path, builder.getSaveType(),
-				this.executor, this.lockSet);
+				builder.getExecutorService());
 	}
 	
 	
@@ -98,22 +89,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private void addFollowingWordForBigram(Bigram bigram, String followingWord) {
-//		DatabaseShard shard = this.getShard(bigram);
-//		ReentrantLock lock = this.lockSet.get(shard.getPrefix());
-//		lock.lock();
-//		try {
-//			shard.addFollowingWord(bigram, followingWord);
-//		} finally {
-//			lock.unlock();
-//		}
-		this.shardCache.process(this.getPrefix(bigram.getWord1()), bigram, followingWord);
+		this.shardCache.addFollowingWord(this.getPrefix(bigram.getWord1()), bigram, followingWord);
 	}
 	
-	/*
-	 * returns null if interruptedexception occurs while waiting for spare shard
-	 * not happy with this (id rather this never returns null) but not sure how else 
-	 * to indicate to abort current operation
-	 */
 	private DatabaseShard getShard(Bigram bigram) {
 		String prefix = this.getPrefix(bigram.getWord1());
 		return this.shardCache.get(prefix);
@@ -143,6 +121,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 			if (ch >= '0' && ch <= '9') {
 				prefix.append("0");
 			}
+			//strictly use ascii letters
 			else if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) {
 				prefix.append(Character.toUpperCase(ch));
 			}
@@ -153,7 +132,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 			}
 			index++;
 		}
-		
+		//fill in remainder up to depth
 		while(index < depth) {
 			prefix.append("A");
 			index++;
@@ -167,17 +146,12 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		return this.shardCache.getStartShard();
 	}
 	
-	private CompletableFuture<String> getRandomWeightedNextWordFuture(CompletableFuture<Bigram> bigramFuture) {
-//		return bigramFuture.thenCombineAsync(this.getShardFuture(bigramFuture), (bigram, shard) ->
-//			shard.getFollowingWord(bigram), this.executor);
-		return null;
-	}
-	
 	@Override
 	public String generateLine() {
 		return this.generateLine(this.getStartShard().getRandomWeightedStartWord());
 	}
 	
+	//TODO this also test it
 	@Override
 	public String generateLine(String startingWord) {
 //		StringBuilder sb = new StringBuilder();
@@ -197,20 +171,6 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 //		return sb.toString();
 		return "hello";
 	}
-	
-	private boolean shouldContinueGettingWords(CompletableFuture<String> nextWord) {
-		try {
-			return nextWord.handleAsync((word, throwable) ->
-			{
-				if(word == null || word.equals(END_TOKEN)) return false;
-				else return true;
-			}, this.executor).get();
-		} catch (InterruptedException | ExecutionException e) {
-			logger.warn("exception when determining whether to continue line generation loop: " + e.getLocalizedMessage());
-			e.printStackTrace();
-			return false;
-		}
-	}
 
 	@Override
 	public void save() {
@@ -220,12 +180,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	@Override
 	public void exportToTextFile() {
 		/*
-		 * create output file
-		 * depth first search through all files in this.path
-		 * if encounter directory, recursively search it
-		 * if encounter file with .database, if it's ~start prefix then load as start shard
-		 * 		else load as regular shard
-		 * 		iterate through all its contents as stringbuilder and write to output file
+		 * builds human readable version of database
+		 * checks all .database files in directory
+		 * like everything else, breaks if outside sources modify db files
 		 */
 		String timeStamp = new SimpleDateFormat("yyyyMMdd-HHmmss").format(Calendar.getInstance().getTime());
 		String path = this.path + "/" + this.id + "_" + timeStamp + ".txt";
@@ -250,7 +207,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	 * checks an input string to make sure it's not a reserved token
 	 * returns the string if it isn't a token, or a replacement word if it is
 	 */
-	static String stripTokens(String input) {
+	private static String stripTokens(String input) {
 		String replacedWord = tokenReplacements.get(input);
 		if(replacedWord == null) {
 			return input;
@@ -274,7 +231,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 
 	@Override
 	public int getSize() {
-		// TODO Auto-generated method stub
+		//?
 		return 0;
 	}
 

@@ -2,8 +2,7 @@ package my.cute.markov2.impl;
 
 import java.io.File;
 import java.util.Map.Entry;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.Executor;
 
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -26,36 +25,31 @@ class ShardCache {
 	private final SaveType saveType;
 	private final ShardLoader shardLoader;
 	private final StartDatabaseShard startShard;
-	private final ExecutorService executor;
-	private final PrefixLockSet lockSet;
-	private int getCounter = 0;
 	
-	ShardCache(String i, int c, int depth, String path, SaveType save, ExecutorService executorService, PrefixLockSet lockSet) {
+	ShardCache(String i, int c, int depth, String path, SaveType save, Executor executorService) {
 		this.id = i;
 		this.capacity = c;
 		this.saveType = save;
-		this.lockSet = lockSet;
-		this.shardLoader = new ShardLoader(this.id, path, depth, this.saveType, this.lockSet);
-		this.executor = executorService;
+		this.shardLoader = new ShardLoader(this.id, path, depth, this.saveType);
 		this.cache = Caffeine.newBuilder()
 				.maximumSize(this.capacity)
-				.executor(this.executor)
+				.executor(executorService)
 				.writer(new CacheWriter<String, DatabaseShard>() {
 					@Override
 					public void write(@NonNull String key, @NonNull DatabaseShard value) {
 						//do nothing on entry load
 					}
 
+					//save db to disk on eviction
 					@Override
 					public void delete(@NonNull String key, @Nullable DatabaseShard value,
 							@NonNull RemovalCause cause) {
 						value.save(saveType);
 					}
 				})
-				.build(prefix -> 
-				{
-					return createDatabaseShard(prefix);
-				});
+				//CacheLoader rule
+				//i seriously think method reference notation is way less readable?
+				.build(prefix -> this.createDatabaseShard(prefix));
 		this.startShard = this.shardLoader.loadStartShard(this.shardLoader.createStartShard());
 //		(prefix, executor) -> 
 //		CompletableFuture.supplyAsync(() -> this.shardLoader.createAndLoadShard(prefix), executor)
@@ -64,42 +58,33 @@ class ShardCache {
 	
 	
 	DatabaseShard get(String prefix) {
-		//100 + prefixlockset gives perfect results on first try, ~3:30 down from ~4:10 singlethread
-		//still not perfectly consistent tho
-		//lock somewhere else?
-		//this.getCounter++;
-		if(this.getCounter > 1000) {
-			this.cache.cleanUp();
-			this.getCounter = 0;
-		}
-//		ReentrantLock lock = this.lockSet.get(prefix);
-//		lock.lock();
-//		try {
-			if(prefix.equals(MarkovDatabaseImpl.START_PREFIX)) return this.startShard;
-			return this.cache.get(prefix);
-//		} finally {
-//			lock.unlock();
-//		}
-		
+		if(prefix.equals(MarkovDatabaseImpl.START_PREFIX)) return this.startShard;
+		return this.cache.get(prefix);
 	}
 	
-	void process(String givenPrefix, Bigram bigram, String followingWord) {
-//		ReentrantLock lock = this.lockSet.get(givenPrefix);
-//		lock.lock();
-//		try {
-			if(givenPrefix == MarkovDatabaseImpl.START_PREFIX) {
-				this.startShard.addFollowingWord(bigram, followingWord);
-			} else {
-				this.cache.asMap().compute(givenPrefix, (prefix, shard) ->
-				{
-					if(shard == null) shard = createDatabaseShard(prefix);
-					shard.addFollowingWord(bigram, followingWord);
-					return shard;
-				});
-			}
-//		} finally {
-//			lock.unlock();
-//		}
+	/*
+	 * not totally happy with this method being here instead of just directly calling the shard
+	 * but directly referring to the cache with cache.asMap().compute() lets us update
+	 * map atomically which avoids concurrency problems (race condition stuff i guess?
+	 * some words not getting processed randomly, must have to do with stale entries/
+	 * trying to do stuff during eviction/idk but doing this seems to solve it)
+	 * also see DatabaseShard.addFollowingWord()
+	 */
+	void addFollowingWord(String key, Bigram bigram, String followingWord) {
+		if(key == MarkovDatabaseImpl.START_PREFIX) {
+			//start shard always being loaded means concurrency problems w/
+			//reloading shards are avoided so we can just call method directly
+			this.startShard.addFollowingWord(bigram, followingWord);
+		} else {
+			//compute is always atomic
+			this.cache.asMap().compute(key, (prefix, shard) ->
+			{
+				//i dont like that i'm duplicating the cacheloader rule here
+				if(shard == null) shard = createDatabaseShard(prefix);
+				shard.addFollowingWord(bigram, followingWord);
+				return shard;
+			});
+		}
 	}
 	
 	StartDatabaseShard getStartShard() {
@@ -122,6 +107,7 @@ class ShardCache {
 		return this.shardLoader.getShardFromFile(file).getDatabaseString();
 	}
 	
+	@SuppressWarnings("unused")
 	int getSize() {
 		int count=0;
 		for(Entry<String, DatabaseShard> entry : this.cache.asMap().entrySet()) {
