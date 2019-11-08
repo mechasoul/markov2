@@ -1,5 +1,6 @@
 package my.cute.markov2.impl;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -26,16 +27,14 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
-public class DatabaseShard {
+class DatabaseShard {
 
 	private static final Logger logger = LoggerFactory.getLogger(DatabaseShard.class);
 	protected static final Gson GSON = new GsonBuilder()
 		.enableComplexMapKeySerialization()
 		.create();
 	protected static final Type DATABASE_TYPE = new TypeToken<ConcurrentHashMap<Bigram, FollowingWordSet>>() {}.getType();
-	public static long saveTimer = 0;
-	public static long saveBytes = 0;
-	public static long loadBytes = 0;
+	private static final SaveType DEFAULT_SAVE_TYPE = SaveType.JSON;
 	
 	protected final String parentDatabaseId;
 	/*
@@ -51,9 +50,8 @@ public class DatabaseShard {
 	protected String prefix;
 	protected Path path;
 	protected ConcurrentMap<Bigram, FollowingWordSet> database;
-	private final Object prefixLock = new Object();
 	
-	public DatabaseShard(String id, String p, String parentPath, int depth) {
+	DatabaseShard(String id, String p, String parentPath, int depth) {
 		this.parentDatabaseId = id;
 		this.prefix = p;
 		String pathString = this.determinePath(parentPath, depth);
@@ -67,14 +65,17 @@ public class DatabaseShard {
 		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(6);
 	}
 	
-	public DatabaseShard(String id, String p, String parentPath) {
+	DatabaseShard(String id, String p, String parentPath) {
 		this(id, p, parentPath, 0);
 	}
 	
 	/*
 	 * returns true if new entry in followingwordset was created as a result of this call
+	 * maybe source of all the concurrency problems? this is a check-then-act race i think
+	 * i feel like its fine though? but maybe with the addNewBigram() stuff some entries fall through
+	 * not sure how it wasn't working properly when we were synchronizing on prefix locks tho? whatever
 	 */
-	public synchronized boolean addFollowingWord(Bigram bigram, String followingWord) {
+	boolean addFollowingWord(Bigram bigram, String followingWord) {
 		FollowingWordSet followingWordSet = this.database.get(bigram);
 		if(followingWordSet != null) {
 			followingWordSet.addWord(followingWord);
@@ -93,34 +94,15 @@ public class DatabaseShard {
 	 * throws IllegalArgumentException if the given bigram isn't present in the shard
 	 * (shouldn't happen)
 	 */
-	synchronized String getFollowingWord(Bigram bigram) throws IllegalArgumentException {
+	String getFollowingWord(Bigram bigram) throws IllegalArgumentException {
 		FollowingWordSet followingWordSet = this.database.get(bigram);
 		if(followingWordSet == null) throw new IllegalArgumentException(bigram.toString() + " not found in " + this.toString());
 		
 		return followingWordSet.getRandomWeightedWord();
 	}
 	
-	synchronized void loadPrefix(String prefix, String parentPath, int depth, SaveType saveType) {
-		String pathString;
-		synchronized(this.prefixLock) {
-			this.prefix = prefix;
-			pathString = this.determinePath(parentPath, depth);
-		}
-		this.database.clear();
-		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(6);
-		try {
-			FileUtils.forceMkdirParent(new File(pathString));
-		} catch (IOException e) {
-			logger.error("IOException on creating parent directory for shard " + this.toString() + ": " + e.getLocalizedMessage());
-			e.printStackTrace();
-		}
-		this.path = Paths.get(pathString);
-		this.load(saveType);
-	}
-	
-	
 	void save() {
-		this.save(SaveType.SERIALIZE);
+		this.save(DEFAULT_SAVE_TYPE);
 	}
 	
 	/*
@@ -130,8 +112,7 @@ public class DatabaseShard {
 	 * should be fine for now though since this project is entirely localized
 	 * returns true if save successful, false if exception encountered
 	 */
-	synchronized void save(SaveType saveType) {
-		long time1 = System.currentTimeMillis();
+	void save(SaveType saveType) {
 		if(saveType == SaveType.JSON) {
 			try {
 				this.saveAsText();
@@ -147,14 +128,13 @@ public class DatabaseShard {
 				e.printStackTrace();
 			}
 		}
-		saveTimer += (System.currentTimeMillis() - time1);
 	}
 	
 	void load() {
-		this.load(SaveType.SERIALIZE);
+		this.load(DEFAULT_SAVE_TYPE);
 	}
 	
-	synchronized void load(SaveType saveType) {
+	void load(SaveType saveType) {
 		if(saveType == SaveType.JSON) {
 			try {
 				this.loadFromText();
@@ -182,8 +162,9 @@ public class DatabaseShard {
 	}
 	
 	void loadFromText() throws FileNotFoundException, NoSuchFileException, IOException {
-		String json = new String(Files.readAllBytes(this.path), StandardCharsets.UTF_8);
-		this.database = GSON.fromJson(json, DATABASE_TYPE); 
+		try (BufferedReader reader = Files.newBufferedReader(this.path, StandardCharsets.UTF_8)) {
+			this.database = GSON.fromJson(reader.readLine(), DATABASE_TYPE); 
+		}
 	}
 	
 	void saveAsObject() throws IOException {
@@ -232,12 +213,6 @@ public class DatabaseShard {
 		return sb.toString();
 	}
 
-	public String getPrefix() {
-		synchronized(this.prefixLock) {
-			return prefix;
-		}
-	}
-
 	@Override
 	public String toString() {
 		StringBuilder builder = new StringBuilder();
@@ -249,7 +224,7 @@ public class DatabaseShard {
 		return builder.toString();
 	}
 	
-	public String toStringFull() {
+	String toStringFull() {
 		StringBuilder builder = new StringBuilder();
 		builder.append("DatabaseShard [parentDatabaseId=");
 		builder.append(parentDatabaseId);
@@ -261,7 +236,11 @@ public class DatabaseShard {
 		return builder.toString();
 	}
 	
-	public String getDatabaseString() {
+	/*
+	 * more human readable toString() basically
+	 * maybe this shouuld just be that
+	 */
+	String getDatabaseString() {
 		StringBuilder sb = new StringBuilder();
 		for(Map.Entry<Bigram, FollowingWordSet> bigramEntry : this.database.entrySet()) {
 			sb.append("(");
@@ -282,5 +261,34 @@ public class DatabaseShard {
 			sb.append("}\r\n");
 		}
 		return sb.toString();
+	}
+
+	String getPrefix() {
+		return prefix;
+	}
+	
+	/*
+	 * for testing
+	 * see MarkovDatabaseImpl.printFollowingWordSetStats()
+	 * get rid of when dont need anymore
+	 */
+	void addFollowingWordSetCounts(ConcurrentHashMap<Integer, Integer> countMap, ConcurrentHashMap<String, Integer> stats) {
+		for(Map.Entry<Bigram, FollowingWordSet> dbEntry : this.database.entrySet()) {
+			FollowingWordSet wordSet = dbEntry.getValue();
+			synchronized(wordSet) {
+				for(Map.Entry<String, Integer> entry : wordSet) {
+					countMap.compute(entry.getValue(), (key, value) ->
+					{
+						if(value == null) return 1;
+						else return value+1;
+					});
+					if(entry.getValue() >= 1000 && entry.getValue() <= 3000) {
+						stats.put(dbEntry.getKey().getWord1()
+									+ " " + dbEntry.getKey().getWord2() + " " + entry.getKey()
+									+ " - " + entry.getValue(), entry.getValue());
+					}
+				}
+			}
+		}
 	}
 }

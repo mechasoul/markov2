@@ -1,5 +1,8 @@
 package my.cute.markov2.impl;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ForkJoinPool;
+
 import my.cute.markov2.MarkovDatabase;
 
 public final class MarkovDatabaseBuilder {
@@ -11,6 +14,7 @@ public final class MarkovDatabaseBuilder {
 	private int depth = 1;
 	private int shardCacheSize = 10;
 	private SaveType saveType = SaveType.SERIALIZE;
+	private ExecutorService executorService = ForkJoinPool.commonPool();
 	
 	public MarkovDatabaseBuilder(String id, String parentPath) {
 		this.id = id;
@@ -30,6 +34,11 @@ public final class MarkovDatabaseBuilder {
 	
 	public MarkovDatabaseBuilder shardCacheSize(int shardCacheSize) {
 		this.shardCacheSize = shardCacheSize;
+		return this;
+	}
+	
+	public MarkovDatabaseBuilder executorService(ExecutorService executor) {
+		this.executorService = executor;
 		return this;
 	}
 	
@@ -55,5 +64,9 @@ public final class MarkovDatabaseBuilder {
 	
 	public int getShardCacheSize() {
 		return shardCacheSize;
+	}
+	
+	public ExecutorService getExecutorService() {
+		return executorService;
 	}
 }

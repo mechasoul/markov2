@@ -11,6 +11,9 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -23,10 +26,10 @@ import com.google.gson.reflect.TypeToken;
 
 import my.cute.markov2.MarkovDatabase;
 import my.cute.markov2.impl.Bigram;
-import my.cute.markov2.impl.DatabaseShard;
 import my.cute.markov2.impl.FollowingWordSet;
 import my.cute.markov2.impl.MarkovDatabaseBuilder;
 import my.cute.markov2.impl.MarkovDatabaseImpl;
+import my.cute.markov2.impl.MyThreadPool;
 import my.cute.markov2.impl.SaveType;
 import my.cute.markov2.impl.ShardLoader;
 
@@ -36,15 +39,23 @@ public class Test {
 	static long tempTime1=0;
 
 	public static void main(String[] args) {
-		String id = "shardtest";
+		try {
+			Thread.sleep(5000);
+		} catch (InterruptedException e2) {
+			// TODO Auto-generated catch block
+			e2.printStackTrace();
+		}
+		String id = "shardtestmasterfull";
 		String path = "./test";
 		String inPath = "./testinput.txt";
 		File testFile = new File(inPath);
+		ForkJoinPool exec = ForkJoinPool.commonPool();
 		
 		MarkovDatabase db = new MarkovDatabaseBuilder(id, path)
 			.depth(2)
-			.shardCacheSize(64)
+			.shardCacheSize(1000)
 			.saveType(SaveType.JSON)
+			.executorService(null)
 			.build();
 		db.load();
 		List<String> testLines = null;
@@ -54,45 +65,31 @@ public class Test {
 		try (Stream<String> lines = Files.lines(Paths.get(inPath), StandardCharsets.UTF_8)){
 			tempTime1 = System.currentTimeMillis();
 			lines
-				.limit(100000)
+				//.limit(100000)
 				.forEach(string -> 
 			{
 				if(StringUtils.isWhitespace(string)) return;
-				db.processLine(tokenize(string));
+				db.processLine(TestUtils.tokenize(string));
 				count++;
 				if(count % 1000 == 0) {
 					long tempTime2 = System.currentTimeMillis();
-					double readRate = ShardLoader.loadTimer == 0 ? 0.0 : (((double)DatabaseShard.loadBytes) / ShardLoader.loadTimer) / 1000.0;
-					double writeRate = DatabaseShard.saveTimer == 0 ? 0.0 : (((double)DatabaseShard.saveBytes) / DatabaseShard.saveTimer) / 1000.0;
 					System.out.print(count + " - ");
-					System.out.print(tempTime2 - tempTime1);
-					System.out.print(", total i/o: " + (ShardLoader.loadTimer + DatabaseShard.saveTimer) + ", load time: " 
-							+ ShardLoader.loadTimer + ", save time: " + DatabaseShard.saveTimer);
-					System.out.println(", read: " + readRate + " MB/s, write: " + writeRate + " MB/s");
+					System.out.println(tempTime2 - tempTime1);
 					tempTime1 = tempTime2;
-					ShardLoader.loadTimer = 0;
-					DatabaseShard.saveTimer = 0;
-					DatabaseShard.saveBytes = 0;
-					DatabaseShard.loadBytes = 0;
 				}
 			});
 		} catch (IOException e1) {
 			e1.printStackTrace();
 		} 
-	
-		/*
-		 * processing time for each batch of 1k messages seems to increase on average
-		 * first few batches are ~3s, towards the end (20+ batches later) its over 10s
-		 * why? hash problem? or jusut normal growth?
-		 * also memory increases over time at an amount that seems too significant
-		 * constant number of java.util.Vector increase over time?
-		 * LinkedHashMap stuff is potentially problematic too
-		 * that + $EntrySet + $LinkedEntrySet are increasing over time and im not sure if they should
-		 * not constant increase like Vector tho
-		 * cpu time dominated (>50%) by FileOutputStream.close() called by FileUtils.writeStringToFile()
-		 * called by saveAsText() called by MyLinkedHashMap.removeEldestEntry() (cache)
-		 */
 		
+		try {
+			exec.awaitQuiescence(4, TimeUnit.MINUTES);
+			exec.shutdown();
+			exec.awaitTermination(4, TimeUnit.MINUTES);
+		} catch (InterruptedException e1) {
+			e1.printStackTrace();
+		}
+
 		long time2 = System.currentTimeMillis();
 		long netTime = time2 - time1;
 		System.out.println("processing finished");
@@ -101,7 +98,7 @@ public class Test {
 		System.out.println("save took " + (System.currentTimeMillis() - time3) + "ms");
 		StringBuilder sb = new StringBuilder();
 		sb.append("total processing time: ");
-		sb.append(getFormattedTime(netTime));
+		sb.append(TestUtils.getFormattedTime(netTime));
 		sb.append("\r\n");
 		sb.append("total lines: " + count);
 		sb.append("\r\n");
@@ -118,7 +115,8 @@ public class Test {
 		System.out.println("beginning export to txt");
 		time1 = System.currentTimeMillis();
 		db.exportToTextFile();
-		System.out.println("export finished in " + getFormattedTime(System.currentTimeMillis() - time1));
+		System.out.println("export finished in " + TestUtils.getFormattedTime(System.currentTimeMillis() - time1));
+		//barf
 //		DatabaseShard shard = new DatabaseShard(id, MarkovDatabaseImpl.ZERO_DEPTH_PREFIX, path);
 //		shard.addFollowingWord(new Bigram("im","very"), "gay");
 //		shard.addFollowingWord(new Bigram("im","very"), "cute");
@@ -151,23 +149,5 @@ public class Test {
 //		}
 //		Map<Bigram, FollowingWordSet> map2 = gson.fromJson(json2, type);
 //		System.out.println(map2);
-	}
-	
-	private static List<String> tokenize(String string) {
-		return Arrays.asList(StringUtils.split(string, null));
-	}
-	
-	private static String getFormattedTime(long millis) {
-		long minutes = TimeUnit.MILLISECONDS.toMinutes(millis);
-		millis -= TimeUnit.MINUTES.toMillis(minutes);
-		long seconds = TimeUnit.MILLISECONDS.toSeconds(millis);
-		millis -= TimeUnit.SECONDS.toMillis(seconds);
-		StringBuilder sb = new StringBuilder();
-		sb.append(minutes);
-		sb.append(":");
-		sb.append(seconds);
-		sb.append(".");
-		sb.append(millis);
-		return sb.toString();
 	}
 }
