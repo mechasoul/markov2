@@ -41,8 +41,9 @@ class StartDatabaseShard extends DatabaseShard {
 	 * gets a random word used to start a message, weighted by word use
 	 * in the start shard, all bigrams have word1 = START_TOKEN, and word2 = actual starting word
 	 * O(n) but its expensive on memory to get faster than that and memory is more of a premium
+	 * throws illegalargumentexception if totalCount == 0 (empty database)
 	 */
-	String getRandomWeightedStartWord() {
+	String getRandomWeightedStartWord() throws IllegalArgumentException {
 		String word = "";
 		int count = RANDOM.nextInt(this.totalCount);
 		for(Map.Entry<Bigram, FollowingWordSet> entry : this.database.entrySet()) {

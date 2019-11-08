@@ -33,7 +33,7 @@ class ShardCache {
 		this.shardLoader = new ShardLoader(this.id, path, depth, this.saveType);
 		this.cache = Caffeine.newBuilder()
 				.maximumSize(this.capacity)
-				.executor(executorService)
+				.executor(executorService == null ? Runnable::run : executorService)
 				.writer(new CacheWriter<String, DatabaseShard>() {
 					@Override
 					public void write(@NonNull String key, @NonNull DatabaseShard value) {
@@ -71,6 +71,7 @@ class ShardCache {
 	 * also see DatabaseShard.addFollowingWord()
 	 */
 	void addFollowingWord(String key, Bigram bigram, String followingWord) {
+		//this.cache.cleanUp();
 		if(key == MarkovDatabaseImpl.START_PREFIX) {
 			//start shard always being loaded means concurrency problems w/
 			//reloading shards are avoided so we can just call method directly
@@ -114,5 +115,13 @@ class ShardCache {
 			count++;
 		}
 		return count;
+	}
+	
+	DatabaseShard getShardFromFile(File file) {
+		return this.shardLoader.getShardFromFile(file);
+	}
+	
+	void cleanUp() {
+		this.cache.cleanUp();
 	}
 }

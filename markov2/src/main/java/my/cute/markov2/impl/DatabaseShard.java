@@ -1,5 +1,6 @@
 package my.cute.markov2.impl;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -162,9 +163,9 @@ class DatabaseShard {
 	}
 	
 	void loadFromText() throws FileNotFoundException, NoSuchFileException, IOException {
-		String json = new String(Files.readAllBytes(this.path), StandardCharsets.UTF_8);
-		this.database = GSON.fromJson(json, DATABASE_TYPE); 
-		if(this.database == null) System.out.println(json);
+		try (BufferedReader reader = Files.newBufferedReader(this.path, StandardCharsets.UTF_8)) {
+			this.database = GSON.fromJson(reader.readLine(), DATABASE_TYPE); 
+		}
 	}
 	
 	void saveAsObject() throws IOException {
@@ -265,5 +266,30 @@ class DatabaseShard {
 
 	String getPrefix() {
 		return prefix;
+	}
+	
+	/*
+	 * for testing
+	 * see MarkovDatabaseImpl.printFollowingWordSetStats()
+	 * get rid of when dont need anymore
+	 */
+	void addFollowingWordSetCounts(ConcurrentHashMap<Integer, Integer> countMap, ConcurrentHashMap<String, Integer> stats) {
+		for(Map.Entry<Bigram, FollowingWordSet> dbEntry : this.database.entrySet()) {
+			FollowingWordSet wordSet = dbEntry.getValue();
+			synchronized(wordSet) {
+				for(Map.Entry<String, Integer> entry : wordSet) {
+					countMap.compute(entry.getValue(), (key, value) ->
+					{
+						if(value == null) return 1;
+						else return value+1;
+					});
+					if(entry.getValue() >= 1000 && entry.getValue() <= 3000) {
+						stats.put(dbEntry.getKey().getWord1()
+									+ " " + dbEntry.getKey().getWord2() + " " + entry.getKey()
+									+ " - " + entry.getValue(), entry.getValue());
+					}
+				}
+			}
+		}
 	}
 }
