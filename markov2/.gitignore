@@ -3,5 +3,6 @@
 /testjson.txt
 /testoutput.txt
 /test/
-/logs/
 /in1.txt
+/markovdb/
+/logs/
