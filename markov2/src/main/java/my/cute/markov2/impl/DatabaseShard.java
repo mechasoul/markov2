@@ -35,6 +35,7 @@ class DatabaseShard {
 		.create();
 	protected static final Type DATABASE_TYPE = new TypeToken<ConcurrentHashMap<Bigram, FollowingWordSet>>() {}.getType();
 	private static final SaveType DEFAULT_SAVE_TYPE = SaveType.JSON;
+	private static final int LARGE_WORD_SET_THRESHOLD = 32;
 	
 	protected final String parentDatabaseId;
 	/*
@@ -49,6 +50,12 @@ class DatabaseShard {
 	 */
 	protected String prefix;
 	protected Path path;
+	/*
+	 * database maps bigram to a followingwordset representing the words following that bigram
+	 * starts as a light arraylist-based implementation and switches to a hashmap-based one
+	 * once the followingwordset reaches a certain size
+	 * goal is to minimize memory use as much as possible, sacrificing speed if necessary (to a point...)
+	 */
 	protected ConcurrentMap<Bigram, FollowingWordSet> database;
 	
 	DatabaseShard(String id, String p, String parentPath, int depth) {
@@ -85,8 +92,9 @@ class DatabaseShard {
 		}
 	}
 	
+	//start with smallfollowingwordset
 	private boolean addNewBigram(Bigram bigram, String followingWord) {
-		return this.database.putIfAbsent(bigram, new FollowingWordSet(followingWord)) == null;
+		return this.database.putIfAbsent(bigram, new SmallFollowingWordSet(followingWord)) == null;
 	}
 	
 	/*
@@ -238,7 +246,7 @@ class DatabaseShard {
 	
 	/*
 	 * more human readable toString() basically
-	 * maybe this shouuld just be that
+	 * maybe this should just be that
 	 */
 	String getDatabaseString() {
 		StringBuilder sb = new StringBuilder();
@@ -249,15 +257,9 @@ class DatabaseShard {
 			sb.append(bigramEntry.getKey().getWord2());
 			sb.append(") -> {");
 			sb.append("count=");
-			sb.append(bigramEntry.getValue().getTotalWordCount());
-			for(Map.Entry<String, Integer> wordEntry : bigramEntry.getValue()) {
-				sb.append(", ");
-				sb.append("(");
-				sb.append(wordEntry.getKey());
-				sb.append(", ");
-				sb.append(wordEntry.getValue());
-				sb.append(")");
-			}
+			sb.append(bigramEntry.getValue().size());
+			sb.append(", ");
+			sb.append(bigramEntry.getValue().toStringPlain());
 			sb.append("}\r\n");
 		}
 		return sb.toString();
@@ -265,30 +267,5 @@ class DatabaseShard {
 
 	String getPrefix() {
 		return prefix;
-	}
-	
-	/*
-	 * for testing
-	 * see MarkovDatabaseImpl.printFollowingWordSetStats()
-	 * get rid of when dont need anymore
-	 */
-	void addFollowingWordSetCounts(ConcurrentHashMap<Integer, Integer> countMap, ConcurrentHashMap<String, Integer> stats) {
-		for(Map.Entry<Bigram, FollowingWordSet> dbEntry : this.database.entrySet()) {
-			FollowingWordSet wordSet = dbEntry.getValue();
-			synchronized(wordSet) {
-				for(Map.Entry<String, Integer> entry : wordSet) {
-					countMap.compute(entry.getValue(), (key, value) ->
-					{
-						if(value == null) return 1;
-						else return value+1;
-					});
-					if(entry.getValue() >= 1000 && entry.getValue() <= 3000) {
-						stats.put(dbEntry.getKey().getWord1()
-									+ " " + dbEntry.getKey().getWord2() + " " + entry.getKey()
-									+ " - " + entry.getValue(), entry.getValue());
-					}
-				}
-			}
-		}
 	}
 }

@@ -26,7 +26,7 @@ import com.google.gson.reflect.TypeToken;
 
 import my.cute.markov2.MarkovDatabase;
 import my.cute.markov2.impl.Bigram;
-import my.cute.markov2.impl.FollowingWordSet;
+import my.cute.markov2.impl.LargeFollowingWordSet;
 import my.cute.markov2.impl.MarkovDatabaseBuilder;
 import my.cute.markov2.impl.MarkovDatabaseImpl;
 import my.cute.markov2.impl.MyThreadPool;

@@ -47,11 +47,11 @@ class StartDatabaseShard extends DatabaseShard {
 		String word = "";
 		int count = RANDOM.nextInt(this.totalCount);
 		for(Map.Entry<Bigram, FollowingWordSet> entry : this.database.entrySet()) {
-			if(count < entry.getValue().getTotalWordCount()) {
+			if(count < entry.getValue().size()) {
 				word = entry.getKey().getWord2();
 				break;
 			} else {
-				count -= entry.getValue().getTotalWordCount();
+				count -= entry.getValue().size();
 			}
 		}
 		
