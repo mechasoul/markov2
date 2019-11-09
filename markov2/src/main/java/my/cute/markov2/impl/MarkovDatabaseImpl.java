@@ -11,7 +11,6 @@ import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 import org.apache.commons.io.FileUtils;
@@ -217,69 +216,6 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 				e.printStackTrace();
 				break;
 			}
-		}
-	}
-	
-	/*
-	 * for testing
-	 * not getting rid of rn in case i need it
-	 */
-	public void printFollowingWordSetStats() {
-		ConcurrentHashMap<Integer, Integer> wordSetCounts = new ConcurrentHashMap<>();
-		ConcurrentHashMap<String, Integer> funStats = new ConcurrentHashMap<>();
-		int shardCount=0;
-		for(File file : FileUtils.listFiles(new File(this.path), FileFilterUtils.suffixFileFilter(".database"), TrueFileFilter.TRUE)) {
-			DatabaseShard shard = this.shardCache.getShardFromFile(file);
-			shard.addFollowingWordSetCounts(wordSetCounts, funStats);
-			shardCount++;
-			if(shardCount % 10 == 0) {
-				System.out.println(shardCount);
-			}
-		}
-		System.out.println("finished processing shards");
-		StringBuilder sb = new StringBuilder();
-		wordSetCounts.entrySet().stream().sorted((first, second) ->
-		{
-			if(first.getValue() < second.getValue()) {
-				return 1;
-			} else if (first.getValue() > second.getValue()) {
-				return -1;
-			} else {
-				if(first.getKey() < second.getKey()) {
-					return -1;
-				} else if (first.getKey() > second.getKey()) {
-					return 1;
-				} else {
-					return 0;
-				}
-			}
-		}).forEach((Map.Entry<Integer, Integer> entry) -> 
-		{
-			sb.append(entry.getKey());
-			sb.append(",");
-			sb.append(entry.getValue());
-			sb.append("\r\n");
-		});
-		StringBuilder fun = new StringBuilder();
-		funStats.entrySet().stream().sorted((first, second) ->
-		{
-			if(first.getValue() < second.getValue()) {
-				return 1;
-			} else if (first.getValue() > second.getValue()) {
-				return -1;
-			} else {
-				return 0;
-			}
-		}).forEach(entry ->
-		{
-			fun.append(entry.getKey());
-			fun.append("\r\n");
-		});
-		try {
-			FileUtils.writeStringToFile(new File("./followingwordsetsizes.txt"), sb.toString(), StandardCharsets.UTF_8, false);
-			FileUtils.writeStringToFile(new File("./followingwordsetpopular.txt"), fun.toString(), StandardCharsets.UTF_8, true);
-		} catch (IOException e) {
-			e.printStackTrace();
 		}
 	}
 

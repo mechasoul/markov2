@@ -45,7 +45,7 @@ public class Test {
 			// TODO Auto-generated catch block
 			e2.printStackTrace();
 		}
-		String id = "shardtestmasterfull";
+		String id = "shardtest";
 		String path = "./test";
 		String inPath = "./testinput.txt";
 		File testFile = new File(inPath);
@@ -77,13 +77,13 @@ public class Test {
 					System.out.println(tempTime2 - tempTime1);
 					tempTime1 = tempTime2;
 				}
-				if(count == 1346000) {
-					try {
-						Thread.sleep(4000);
-					} catch (InterruptedException e) {
-						e.printStackTrace();
-					}
-				}
+//				if(count == 1346000) {
+//					try {
+//						Thread.sleep(4000);
+//					} catch (InterruptedException e) {
+//						e.printStackTrace();
+//					}
+//				}
 			});
 		} catch (IOException e1) {
 			e1.printStackTrace();

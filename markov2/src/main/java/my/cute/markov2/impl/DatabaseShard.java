@@ -35,7 +35,7 @@ class DatabaseShard {
 		.create();
 	protected static final Type DATABASE_TYPE = new TypeToken<ConcurrentHashMap<Bigram, FollowingWordSet>>() {}.getType();
 	private static final SaveType DEFAULT_SAVE_TYPE = SaveType.JSON;
-	private static final int LARGE_WORD_SET_THRESHOLD = 32;
+	private static final int LARGE_WORD_SET_THRESHOLD = 24;
 	
 	protected final String parentDatabaseId;
 	/*
@@ -78,14 +78,19 @@ class DatabaseShard {
 	
 	/*
 	 * returns true if new entry in followingwordset was created as a result of this call
-	 * maybe source of all the concurrency problems? this is a check-then-act race i think
-	 * i feel like its fine though? but maybe with the addNewBigram() stuff some entries fall through
-	 * not sure how it wasn't working properly when we were synchronizing on prefix locks tho? whatever
+	 * is only used in atomic compute() context
+	 * so the concurrency issues here shouldnt actually be issues
+	 * & consequently be careful using this if not synchronizing or w/e
 	 */
 	boolean addFollowingWord(Bigram bigram, String followingWord) {
 		FollowingWordSet followingWordSet = this.database.get(bigram);
 		if(followingWordSet != null) {
 			followingWordSet.addWord(followingWord);
+			//check for replacing small set with large
+			//better way to do this?
+			if(followingWordSet.size() > LARGE_WORD_SET_THRESHOLD && followingWordSet instanceof SmallFollowingWordSet) {
+				this.database.put(bigram, new LargeFollowingWordSet((SmallFollowingWordSet)followingWordSet));
+			}
 			return false;
 		} else {
 			return this.addNewBigram(bigram, followingWord);
