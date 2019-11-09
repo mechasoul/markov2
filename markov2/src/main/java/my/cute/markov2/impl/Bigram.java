@@ -10,8 +10,8 @@ public class Bigram implements Serializable {
 	private final String word2;
 	
 	public Bigram(String w1, String w2) {
-		word1 = w1;
-		word2 = w2;
+		word1 = w1.intern();
+		word2 = w2.intern();
 	}
 	
 	public String getWord1() {

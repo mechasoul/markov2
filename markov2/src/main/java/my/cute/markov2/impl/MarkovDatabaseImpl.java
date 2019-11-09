@@ -37,9 +37,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	
 	static {
 		tokenReplacements = new HashMap<String, String>(4);
-		tokenReplacements.put(START_TOKEN, "start");
-		tokenReplacements.put(TOTAL_TOKEN, "total");
-		tokenReplacements.put(END_TOKEN, "end");
+		tokenReplacements.put(START_TOKEN, "start".intern());
+		tokenReplacements.put(TOTAL_TOKEN, "total".intern());
+		tokenReplacements.put(END_TOKEN, "end".intern());
 	}
 	
 	private final String id;
@@ -77,11 +77,11 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		}
 		
 		//at least one element is present by above
-		Bigram currentBigram = new Bigram(START_TOKEN, stripTokens(words.get(0)));
+		Bigram currentBigram = new Bigram(START_TOKEN, stripTokens(words.get(0)).intern());
 		String nextWord = "";
 		int wordIndex = 1;
 		while(wordIndex < words.size()) {
-			nextWord = stripTokens(words.get(wordIndex));
+			nextWord = stripTokens(words.get(wordIndex)).intern();
 			this.addFollowingWordForBigram(currentBigram, nextWord);
 			currentBigram = new Bigram(currentBigram.getWord2(), nextWord);
 			wordIndex++;
@@ -140,7 +140,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		}
 		
 		//StringBuilder should be nonempty since above loop happened at least once
-		return prefix.toString();
+		return prefix.toString().intern();
 	}
 	
 	private StartDatabaseShard getStartShard() {
