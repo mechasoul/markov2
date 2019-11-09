@@ -77,6 +77,13 @@ public class Test {
 					System.out.println(tempTime2 - tempTime1);
 					tempTime1 = tempTime2;
 				}
+				if(count == 1346000) {
+					try {
+						Thread.sleep(4000);
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}
+				}
 			});
 		} catch (IOException e1) {
 			e1.printStackTrace();
