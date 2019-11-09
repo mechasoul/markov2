@@ -36,7 +36,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	static final int MAX_WORDS_PER_LINE = 256;
 	
 	static {
-		tokenReplacements = new HashMap<String, String>(4);
+		tokenReplacements = new HashMap<String, String>(4, 1f);
 		tokenReplacements.put(START_TOKEN, "start".intern());
 		tokenReplacements.put(TOTAL_TOKEN, "total".intern());
 		tokenReplacements.put(END_TOKEN, "end".intern());
