@@ -26,9 +26,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	private static final Logger logger = LoggerFactory.getLogger(MarkovDatabaseImpl.class);
 	
 	private static final Pattern PUNCTUATION = Pattern.compile("\\p{Punct}");
-	static final String START_TOKEN = "<_start>";
-	static final String TOTAL_TOKEN = "<_total>";
-	static final String END_TOKEN = "<_end>";
+	static final String START_TOKEN = MyStringPool.INSTANCE.intern("<_start>");
+	static final String TOTAL_TOKEN = MyStringPool.INSTANCE.intern("<_total>");
+	static final String END_TOKEN = MyStringPool.INSTANCE.intern("<_end>");
 	private static final Map<String, String> tokenReplacements;
 	static final String ZERO_DEPTH_PREFIX = "~database";
 	static final String START_PREFIX = "~start";
@@ -36,9 +36,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	
 	static {
 		tokenReplacements = new HashMap<String, String>(4, 1f);
-		tokenReplacements.put(START_TOKEN, "start".intern());
-		tokenReplacements.put(TOTAL_TOKEN, "total".intern());
-		tokenReplacements.put(END_TOKEN, "end".intern());
+		tokenReplacements.put(START_TOKEN, MyStringPool.INSTANCE.intern("start"));
+		tokenReplacements.put(TOTAL_TOKEN, MyStringPool.INSTANCE.intern("total"));
+		tokenReplacements.put(END_TOKEN, MyStringPool.INSTANCE.intern("end"));
 	}
 	
 	private final String id;
@@ -76,11 +76,11 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		}
 		
 		//at least one element is present by above
-		Bigram currentBigram = new Bigram(START_TOKEN, stripTokens(words.get(0)).intern());
+		Bigram currentBigram = new Bigram(START_TOKEN, stripTokens(MyStringPool.INSTANCE.intern(words.get(0))));
 		String nextWord = "";
 		int wordIndex = 1;
 		while(wordIndex < words.size()) {
-			nextWord = stripTokens(words.get(wordIndex)).intern();
+			nextWord = stripTokens(MyStringPool.INSTANCE.intern(words.get(wordIndex)));
 			this.addFollowingWordForBigram(currentBigram, nextWord);
 			currentBigram = new Bigram(currentBigram.getWord2(), nextWord);
 			wordIndex++;
@@ -89,7 +89,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private void addFollowingWordForBigram(Bigram bigram, String followingWord) {
-		this.shardCache.addFollowingWord(this.getPrefix(bigram.getWord1()), bigram, followingWord);
+		this.shardCache.addFollowingWord(this.getPrefix(bigram.getWord1()), bigram, MyStringPool.INSTANCE.intern(followingWord));
 	}
 	
 	private DatabaseShard getShard(Bigram bigram) {
@@ -139,7 +139,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		}
 		
 		//StringBuilder should be nonempty since above loop happened at least once
-		return prefix.toString().intern();
+		return MyStringPool.INSTANCE.intern(prefix.toString());
 	}
 	
 	private StartDatabaseShard getStartShard() {
@@ -231,7 +231,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	private static String stripTokens(String input) {
 		String replacedWord = tokenReplacements.get(input);
 		if(replacedWord == null) {
-			return input;
+			return MyStringPool.INSTANCE.intern(input);
 		} else {
 			return replacedWord;
 		}
