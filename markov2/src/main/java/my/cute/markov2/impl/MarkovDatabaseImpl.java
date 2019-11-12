@@ -295,9 +295,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	private static String stripTokens(String input) {
 		String replacedWord = tokenReplacements.get(input);
 		if(replacedWord == null) {
-			return input;
+			return MyStringPool.INSTANCE.intern(input);
 		} else {
-			return MyStringPool.INSTANCE.intern(replacedWord);
+			return replacedWord;
 		}
 	}
 	
