@@ -9,9 +9,14 @@ public class Bigram implements Serializable {
 	private final String word1;
 	private final String word2;
 	
+	public Bigram() {
+		word1 = MyStringPool.INSTANCE.intern("");
+		word2 = MyStringPool.INSTANCE.intern("");
+	}
+	
 	public Bigram(String w1, String w2) {
-		word1 = w1.intern();
-		word2 = w2.intern();
+		word1 = MyStringPool.INSTANCE.intern(w1);
+		word2 = MyStringPool.INSTANCE.intern(w2);
 	}
 	
 	public String getWord1() {

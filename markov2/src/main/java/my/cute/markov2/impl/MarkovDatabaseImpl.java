@@ -77,11 +77,11 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		}
 		
 		//at least one element is present by above
-		Bigram currentBigram = new Bigram(START_TOKEN, stripTokens(words.get(0)).intern());
+		Bigram currentBigram = new Bigram(START_TOKEN, stripTokens(MyStringPool.INSTANCE.intern(words.get(0))));
 		String nextWord = "";
 		int wordIndex = 1;
 		while(wordIndex < words.size()) {
-			nextWord = stripTokens(words.get(wordIndex)).intern();
+			nextWord = stripTokens(MyStringPool.INSTANCE.intern(words.get(wordIndex)));
 			this.addFollowingWordForBigram(currentBigram, nextWord);
 			currentBigram = new Bigram(currentBigram.getWord2(), nextWord);
 			wordIndex++;
@@ -90,7 +90,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private void addFollowingWordForBigram(Bigram bigram, String followingWord) {
-		this.shardCache.addFollowingWord(this.getPrefix(bigram.getWord1()), bigram, followingWord);
+		this.shardCache.addFollowingWord(this.getPrefix(bigram.getWord1()), bigram, MyStringPool.INSTANCE.intern(followingWord));
 	}
 	
 	private DatabaseShard getShard(Bigram bigram) {
@@ -140,7 +140,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		}
 		
 		//StringBuilder should be nonempty since above loop happened at least once
-		return prefix.toString().intern();
+		return MyStringPool.INSTANCE.intern(prefix.toString());
 	}
 	
 	private StartDatabaseShard getStartShard() {
@@ -297,7 +297,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		if(replacedWord == null) {
 			return input;
 		} else {
-			return replacedWord;
+			return MyStringPool.INSTANCE.intern(replacedWord);
 		}
 	}
 	
