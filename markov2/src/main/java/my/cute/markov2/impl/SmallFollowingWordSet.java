@@ -2,6 +2,7 @@ package my.cute.markov2.impl;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
@@ -11,11 +12,11 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 	private final List<String> words;
 	
 	SmallFollowingWordSet() {
-		this.words = new ArrayList<String>(1);
+		this.words = Collections.synchronizedList(new ArrayList<String>(1));
 	}
 	
 	SmallFollowingWordSet(String firstWord) {
-		this.words = new ArrayList<String>(1);
+		this.words = Collections.synchronizedList(new ArrayList<String>(1));
 		this.addWord(firstWord);
 	}
 	
@@ -34,6 +35,9 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 		return this.words.size();
 	}
 
+	/*
+	 * must synchronize manually on this when iterating
+	 */
 	@Override
 	public Iterator<String> iterator() {
 		return this.words.iterator();

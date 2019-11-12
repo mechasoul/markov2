@@ -45,9 +45,11 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 	
 	LargeFollowingWordSet(SmallFollowingWordSet set) {
 		this.totalWordCount = 0;
-		this.words = TCollections.synchronizedMap(new TObjectIntHashMap<String>(set.size(), 0.8f));
-		for(String word : set) {
-			this.addWord(word);
+		this.words = TCollections.synchronizedMap(new TObjectIntHashMap<String>(set.size() * 5 / 4, 0.8f));
+		synchronized(set) {
+			for(String word : set) {
+				this.addWord(word);
+			}
 		}
 	}
 
