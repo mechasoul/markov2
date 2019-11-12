@@ -27,9 +27,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	private static final Logger logger = LoggerFactory.getLogger(MarkovDatabaseImpl.class);
 	
 	private static final Pattern PUNCTUATION = Pattern.compile("\\p{Punct}");
-	static final String START_TOKEN = "<_start>";
-	static final String TOTAL_TOKEN = "<_total>";
-	static final String END_TOKEN = "<_end>";
+	static final String START_TOKEN = MyStringPool.INSTANCE.intern("<_start>");
+	static final String TOTAL_TOKEN = MyStringPool.INSTANCE.intern("<_total>");
+	static final String END_TOKEN = MyStringPool.INSTANCE.intern("<_end>");
 	private static final Map<String, String> tokenReplacements;
 	static final String ZERO_DEPTH_PREFIX = "~database";
 	static final String START_PREFIX = "~start";
@@ -37,9 +37,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	
 	static {
 		tokenReplacements = new HashMap<String, String>(4, 1f);
-		tokenReplacements.put(START_TOKEN, "start".intern());
-		tokenReplacements.put(TOTAL_TOKEN, "total".intern());
-		tokenReplacements.put(END_TOKEN, "end".intern());
+		tokenReplacements.put(START_TOKEN, MyStringPool.INSTANCE.intern("start"));
+		tokenReplacements.put(TOTAL_TOKEN, MyStringPool.INSTANCE.intern("total"));
+		tokenReplacements.put(END_TOKEN, MyStringPool.INSTANCE.intern("end"));
 	}
 	
 	private final String id;
