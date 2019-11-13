@@ -1,9 +1,42 @@
 package my.cute.markov2.impl;
 
+import java.io.IOException;
 import java.io.Serializable;
+
+import org.nustaq.serialization.FSTBasicObjectSerializer;
+import org.nustaq.serialization.FSTClazzInfo;
+import org.nustaq.serialization.FSTClazzInfo.FSTFieldInfo;
+import org.nustaq.serialization.FSTObjectInput;
+import org.nustaq.serialization.FSTObjectOutput;
 
 
 public class Bigram implements Serializable {
+	
+	static class Serializer extends FSTBasicObjectSerializer {
+
+		@Override
+		public void writeObject(FSTObjectOutput out, Object toWrite, FSTClazzInfo clzInfo, FSTFieldInfo referencedBy,
+				int streamPosition) throws IOException {
+			Bigram bigram = (Bigram) toWrite;
+			out.writeUTF(bigram.getWord1());
+			out.writeUTF(bigram.getWord2());
+		}
+		
+		@Override
+	    public void readObject(FSTObjectInput in, Object toRead, FSTClazzInfo clzInfo, FSTClazzInfo.FSTFieldInfo referencedBy)
+	    {
+	    }
+		
+		@Override
+		public Object instantiate(@SuppressWarnings("rawtypes") Class objectClass, FSTObjectInput in, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee, int streamPosition) throws IOException 
+		{
+			String word1 = MyStringPool.INSTANCE.intern(in.readUTF());
+			String word2 = MyStringPool.INSTANCE.intern(in.readUTF());
+			Object bigram = new Bigram(word1, word2);
+			in.registerObject(bigram, streamPosition, serializationInfo, referencee);
+			return bigram;
+		}
+	}
 
 	private static final long serialVersionUID = 1L;
 	private final String word1;

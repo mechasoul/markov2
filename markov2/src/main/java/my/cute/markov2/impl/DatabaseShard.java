@@ -6,8 +6,6 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -15,11 +13,14 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 import org.apache.commons.io.FileUtils;
+import org.nustaq.serialization.FSTConfiguration;
+import org.nustaq.serialization.FSTObjectInput;
+import org.nustaq.serialization.FSTObjectOutput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,6 +37,14 @@ class DatabaseShard {
 	protected static final Type DATABASE_TYPE = new TypeToken<ConcurrentHashMap<Bigram, FollowingWordSet>>() {}.getType();
 	private static final SaveType DEFAULT_SAVE_TYPE = SaveType.JSON;
 	private static final int LARGE_WORD_SET_THRESHOLD = 24;
+	
+	protected static final FSTConfiguration CONF = FSTConfiguration.getDefaultConfiguration();
+	
+	static {
+    	CONF.registerClass(ConcurrentHashMap.class, Bigram.class, ArrayList.class, String.class, DatabaseWrapper.class);
+    	CONF.registerSerializer(Bigram.class, new Bigram.Serializer(), true);
+    	CONF.registerSerializer(DatabaseWrapper.class, new DatabaseWrapper.Serializer(), true);
+	}
 	
 	protected final String parentDatabaseId;
 	/*
@@ -56,7 +65,7 @@ class DatabaseShard {
 	 * once the followingwordset reaches a certain size
 	 * goal is to minimize memory use as much as possible, sacrificing speed if necessary (to a point...)
 	 */
-	protected ConcurrentMap<Bigram, FollowingWordSet> database;
+	protected DatabaseWrapper database;
 	
 	DatabaseShard(String id, String p, String parentPath, int depth) {
 		this.parentDatabaseId = id;
@@ -69,7 +78,7 @@ class DatabaseShard {
 			e.printStackTrace();
 		}
 		this.path = Paths.get(pathString);
-		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(6);
+		this.database = new DatabaseWrapper();
 	}
 	
 	DatabaseShard(String id, String p, String parentPath) {
@@ -162,10 +171,10 @@ class DatabaseShard {
 				this.loadFromObject();
 			} catch (FileNotFoundException e) {
 				//logger.info("couldn't load (deserialize) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
-			} catch (IOException | ClassNotFoundException e) {
+			} catch (Exception e) {
 				logger.error("couldn't load (deserialize) " + this.toString() + ": " + e.getLocalizedMessage());
 				e.printStackTrace();
-			}
+			} 
 		}
 	}
 	
@@ -182,17 +191,17 @@ class DatabaseShard {
 	
 	void saveAsObject() throws IOException {
 		FileOutputStream fileOutputStream = new FileOutputStream(this.path.toString());
-		ObjectOutputStream objectOutputStream = new ObjectOutputStream(fileOutputStream);
-		objectOutputStream.writeObject(this.database);
-		objectOutputStream.close();	
+		FSTObjectOutput out = CONF.getObjectOutput(fileOutputStream);
+		out.writeObject(this.database, DatabaseWrapper.class);
+		out.flush();
+		fileOutputStream.close();
 	}
 
-	@SuppressWarnings("unchecked")
-	void loadFromObject() throws FileNotFoundException, IOException, ClassNotFoundException {
-			FileInputStream fileInputStream = new FileInputStream(this.path.toString());
-			ObjectInputStream objectInputStream = new ObjectInputStream(fileInputStream);
-			this.database = (ConcurrentMap<Bigram, FollowingWordSet>) objectInputStream.readObject();
-			objectInputStream.close();
+	void loadFromObject() throws Exception {
+		FileInputStream fileInputStream = new FileInputStream(this.path.toString());
+		FSTObjectInput in = CONF.getObjectInput(fileInputStream);
+		this.database = (DatabaseWrapper) in.readObject(DatabaseWrapper.class);
+		fileInputStream.close();
 	}
 	
 	/*
