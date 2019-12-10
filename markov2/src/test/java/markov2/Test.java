@@ -53,9 +53,10 @@ public class Test {
 		
 		MarkovDatabase db = new MarkovDatabaseBuilder(id, path)
 			.depth(2)
-			.shardCacheSize(1000)
-			.saveType(SaveType.JSON)
-			.executorService(null)
+			.shardCacheSize(8)
+			.saveType(SaveType.SERIALIZE)
+			.executorService(exec)
+			.fixedCleanupThreshold(0)
 			.build();
 		db.load();
 		List<String> testLines = null;
@@ -65,7 +66,7 @@ public class Test {
 		try (Stream<String> lines = Files.lines(Paths.get(inPath), StandardCharsets.UTF_8)){
 			tempTime1 = System.currentTimeMillis();
 			lines
-				//.limit(100000)
+				.limit(100000)
 				.forEach(string -> 
 			{
 				if(StringUtils.isWhitespace(string)) return;
@@ -75,6 +76,11 @@ public class Test {
 					long tempTime2 = System.currentTimeMillis();
 					System.out.print(count + " - ");
 					System.out.println(tempTime2 - tempTime1);
+//					if((tempTime2 - tempTime1) > 20000) {
+//						MarkovDatabaseImpl.LOG = true;
+//					} else {
+//						MarkovDatabaseImpl.LOG = false;
+//					}
 					tempTime1 = tempTime2;
 				}
 //				if(count == 1346000) {

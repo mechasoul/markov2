@@ -13,7 +13,6 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -34,16 +33,18 @@ class DatabaseShard {
 	protected static final Gson GSON = new GsonBuilder()
 		.enableComplexMapKeySerialization()
 		.create();
-	protected static final Type DATABASE_TYPE = new TypeToken<ConcurrentHashMap<Bigram, FollowingWordSet>>() {}.getType();
+	protected static final Type DATABASE_TYPE = new TypeToken<DatabaseWrapper>() {}.getType();
 	private static final SaveType DEFAULT_SAVE_TYPE = SaveType.JSON;
 	private static final int LARGE_WORD_SET_THRESHOLD = 24;
 	
 	protected static final FSTConfiguration CONF = FSTConfiguration.getDefaultConfiguration();
 	
 	static {
-    	CONF.registerClass(ConcurrentHashMap.class, Bigram.class, ArrayList.class, String.class, DatabaseWrapper.class);
+    	CONF.registerClass(ConcurrentHashMap.class, Bigram.class, String.class, DatabaseWrapper.class, SmallFollowingWordSet.class, LargeFollowingWordSet.class);
     	CONF.registerSerializer(Bigram.class, new Bigram.Serializer(), true);
     	CONF.registerSerializer(DatabaseWrapper.class, new DatabaseWrapper.Serializer(), true);
+    	CONF.registerSerializer(SmallFollowingWordSet.class, new FollowingWordSet.Serializer(), true);
+    	CONF.registerSerializer(LargeFollowingWordSet.class, new FollowingWordSet.Serializer(), true);
 	}
 	
 	protected final String parentDatabaseId;
@@ -78,7 +79,7 @@ class DatabaseShard {
 			e.printStackTrace();
 		}
 		this.path = Paths.get(pathString);
-		this.database = new DatabaseWrapper();
+		this.database = new DatabaseWrapper(this.prefix, this.parentDatabaseId);
 	}
 	
 	DatabaseShard(String id, String p, String parentPath) {
@@ -88,7 +89,7 @@ class DatabaseShard {
 	/*
 	 * returns true if new entry in followingwordset was created as a result of this call
 	 * is only used in atomic compute() context
-	 * so the concurrency issues here shouldnt actually be issues
+	 * so the concurrency issues here (eg replacing FollowingWordSet) shouldnt actually be issues
 	 * & consequently be careful using this if not synchronizing or w/e
 	 */
 	boolean addFollowingWord(Bigram bigram, String followingWord) {
@@ -97,7 +98,7 @@ class DatabaseShard {
 			followingWordSet.addWord(followingWord);
 			//check for replacing small set with large
 			//better way to do this?
-			if(followingWordSet.size() > LARGE_WORD_SET_THRESHOLD && followingWordSet instanceof SmallFollowingWordSet) {
+			if(followingWordSet.size() >= LARGE_WORD_SET_THRESHOLD && followingWordSet instanceof SmallFollowingWordSet) {
 				this.database.put(bigram, new LargeFollowingWordSet((SmallFollowingWordSet)followingWordSet));
 			}
 			return false;
@@ -108,7 +109,7 @@ class DatabaseShard {
 	
 	//start with smallfollowingwordset
 	private boolean addNewBigram(Bigram bigram, String followingWord) {
-		return this.database.putIfAbsent(bigram, new SmallFollowingWordSet(followingWord)) == null;
+		return this.database.putIfAbsent(bigram, new SmallFollowingWordSet(followingWord, bigram, this.parentDatabaseId)) == null;
 	}
 	
 	/*

@@ -8,8 +8,9 @@ import org.nustaq.serialization.FSTClazzInfo;
 import org.nustaq.serialization.FSTClazzInfo.FSTFieldInfo;
 import org.nustaq.serialization.FSTObjectInput;
 import org.nustaq.serialization.FSTObjectOutput;
+import org.nustaq.serialization.annotations.Flat;
 
-
+@Flat
 public class Bigram implements Serializable {
 	
 	static class Serializer extends FSTBasicObjectSerializer {
@@ -41,6 +42,7 @@ public class Bigram implements Serializable {
 	private static final long serialVersionUID = 1L;
 	private final String word1;
 	private final String word2;
+	private int hash = 0;
 	
 	public Bigram() {
 		word1 = MyStringPool.INSTANCE.intern("");
@@ -64,11 +66,15 @@ public class Bigram implements Serializable {
 	
 	@Override
 	public int hashCode() {
-		final int prime = 31;
-		int result = 1;
-		result = prime * result + ((word1 == null) ? 0 : word1.hashCode());
-		result = prime * result + ((word2 == null) ? 0 : word2.hashCode());
-		return result;
+		//recalculate every time hash is 0, but shouldn't be too much of an issue
+		if(this.hash==0) {
+			final int prime = 31;
+			int h = 1;
+			h = prime * h + ((word1 == null) ? 0 : word1.hashCode());
+			h = prime * h + ((word2 == null) ? 0 : word2.hashCode());
+			this.hash = h;
+		}
+		return this.hash;
 	}
 
 	@Override

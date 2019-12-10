@@ -51,7 +51,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		this.path = builder.getParentPath() + "/" + this.id;
 		this.depth = builder.getDepth();
 		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), builder.getDepth(), this.path, builder.getSaveType(),
-				builder.getExecutorService());
+				builder.getExecutorService(), builder.getFixedCleanupThreshold());
 	}
 	
 	

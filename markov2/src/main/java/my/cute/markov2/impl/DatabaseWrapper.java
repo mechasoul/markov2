@@ -16,12 +16,18 @@ import java.util.concurrent.ConcurrentMap;
 
 import org.nustaq.serialization.FSTBasicObjectSerializer;
 import org.nustaq.serialization.FSTClazzInfo;
-import org.nustaq.serialization.FSTObjectInput;
 import org.nustaq.serialization.FSTClazzInfo.FSTFieldInfo;
+import org.nustaq.serialization.FSTObjectInput;
+import org.nustaq.serialization.FSTObjectOutput;
+import org.nustaq.serialization.annotations.Flat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.nustaq.serialization.FSTObjectOutput;
 
+import gnu.trove.TCollections;
+import gnu.trove.map.TObjectIntMap;
+import gnu.trove.map.hash.TObjectIntHashMap;
+
+@Flat
 class DatabaseWrapper implements Serializable {
 
 	@SuppressWarnings("unused")
@@ -35,17 +41,13 @@ class DatabaseWrapper implements Serializable {
 				int streamPosition) throws IOException {
 			
 			DatabaseWrapper db = (DatabaseWrapper) toWrite;
-//			out.writeInt(db.entrySet().size());
-//			for (Map.Entry<Bigram, List<String>> next : db.entrySet()) {
-//				Bigram bigram = next.getKey();
-//				out.writeObject(bigram, Bigram.class);
-//				int listSize = next.getValue().size();
-//				out.writeInt(listSize);
-//				for(int i=0; i < listSize; i++) {
-//					out.writeUTF(next.getValue().get(i));
-//				}
-//			}
-			
+			out.writeInt(db.size());
+			out.writeUTF(db.getPrefix());
+			out.writeUTF(db.getId());
+			for(Map.Entry<Bigram, FollowingWordSet> next : db.entrySet()) {
+				out.writeObject(next.getKey(), Bigram.class);
+				next.getValue().writeToOutput(out);
+			}
 		}
 		
 		@Override
@@ -56,21 +58,39 @@ class DatabaseWrapper implements Serializable {
 		@Override
 		public Object instantiate(@SuppressWarnings("rawtypes") Class objectClass, FSTObjectInput in, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee, int streamPosition) throws Exception 
 		{
-			int size = in.readInt();
-//			ConcurrentMap<Bigram, List<String>> db = new ConcurrentHashMap<Bigram, List<String>>(size * 4 / 3);
-//			for(int i=0; i < size; i++) {
-//				Bigram bigram = (Bigram) in.readObject(Bigram.class);
-//				int listSize = in.readInt();
-//				List<String> list = Collections.synchronizedList(new ArrayList<>(listSize));
-//				for(int j=0; j < listSize; j++) {
-//					list.add(MyStringPool.INSTANCE.intern(in.readUTF()));
-//				}
-//				db.put(bigram, list);
-//			}
 			
-			
-			
-			DatabaseWrapper object = new DatabaseWrapper(db);
+			int dbSize = in.readInt();
+			String prefix = MyStringPool.INSTANCE.intern(in.readUTF());
+			String id = MyStringPool.INSTANCE.intern(in.readUTF());
+			ConcurrentMap<Bigram, FollowingWordSet> db = new ConcurrentHashMap<Bigram, FollowingWordSet>(dbSize * 4 / 3);
+			for(int i=0; i < dbSize; i++) {
+				Bigram bigram = (Bigram) in.readObject(Bigram.class);
+				
+				FollowingWordSet fws;
+				FollowingWordSet.Type type = FollowingWordSet.Type.fromInt(in.readInt());
+				if(type == FollowingWordSet.Type.SMALL) {
+					int listSize = in.readInt();
+					List<String> list = Collections.synchronizedList(new ArrayList<String>(listSize));
+					for(int j=0; j < listSize; j++) {
+						list.add(MyStringPool.INSTANCE.intern(in.readUTF()));
+					}
+					fws = new SmallFollowingWordSet(list, bigram, id);
+				} else {
+					//type == FollowingWordSet.Type.LARGE
+					int mapSize = in.readInt();
+					TObjectIntMap<String> map = TCollections.synchronizedMap(new TObjectIntHashMap<String>(mapSize * 5 / 4, 0.8f));
+					int totalWordCount=0;
+					for(int j=0; j < mapSize; j++) {
+						String word = MyStringPool.INSTANCE.intern(in.readUTF());
+						int wordCount = in.readInt();
+						totalWordCount += wordCount;
+						map.put(word, wordCount);
+					}
+					fws = new LargeFollowingWordSet(map, totalWordCount, bigram, id);
+				}
+				db.put(bigram, fws);
+			}
+			DatabaseWrapper object = new DatabaseWrapper(db, prefix, id);
 			in.registerObject(object, streamPosition, serializationInfo, referencee);
 			return object;
 		}
@@ -93,14 +113,27 @@ class DatabaseWrapper implements Serializable {
 	 * & we'll have to merge guava interning + fst serializing into master too
 	 */
 	
+	private final String prefix;
+	private final String parentDatabaseId;
 	private final ConcurrentMap<Bigram, FollowingWordSet> database;
 	
-	DatabaseWrapper() {
+//	DatabaseWrapper() {
+//		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(3);
+//		//danger
+//		this.prefix = null;
+//		this.parentDatabaseId = null;
+//	}
+	
+	DatabaseWrapper(String prefix, String id) {
 		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(3);
+		this.prefix = prefix;
+		this.parentDatabaseId = id;
 	}
 	
-	DatabaseWrapper(ConcurrentMap<Bigram, FollowingWordSet> map) {
+	DatabaseWrapper(ConcurrentMap<Bigram, FollowingWordSet> map, String prefix, String id) {
 		this.database = map;
+		this.prefix = prefix;
+		this.parentDatabaseId = id;
 	}
 
 	public FollowingWordSet get(Bigram key) {
@@ -127,12 +160,60 @@ class DatabaseWrapper implements Serializable {
 		return this.database.entrySet();
 	}
 
+	public String getPrefix() {
+		return this.prefix;
+	}
+
+	public String getId() {
+		return this.parentDatabaseId;
+	}
+	
+	/*
+	 * re: hashCode() and equals(), two shard db wrappers should be considered equal iff they represent the same
+	 * shard in the same markovdb, which is reflected here
+	 * i think this makes more sense than db wrapper equality depending on its contents, and it also
+	 * means a DatabaseWrapper's hashcode and equality will not change after creation
+	 * its slightly abstract and possibly unintuitive but again i think it does make sense
+	 */
+	@Override
+	public int hashCode() {
+		final int prime = 31;
+		int result = 1;
+		result = prime * result + ((parentDatabaseId == null) ? 0 : parentDatabaseId.hashCode());
+		result = prime * result + ((prefix == null) ? 0 : prefix.hashCode());
+		return result;
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj)
+			return true;
+		if (!(obj instanceof DatabaseWrapper))
+			return false;
+		DatabaseWrapper other = (DatabaseWrapper) obj;
+		if (parentDatabaseId == null) {
+			if (other.parentDatabaseId != null)
+				return false;
+		} else if (!parentDatabaseId.equals(other.parentDatabaseId))
+			return false;
+		if (prefix == null) {
+			if (other.prefix != null)
+				return false;
+		} else if (!prefix.equals(other.prefix))
+			return false;
+		return true;
+	}
+
 	@Override
 	public String toString() {
 		StringBuilder builder = new StringBuilder();
-		builder.append("DatabaseWrapper [database=");
-		builder.append(database);
+		builder.append("DatabaseWrapper [prefix=");
+		builder.append(prefix);
+		builder.append(", parentDatabaseId=");
+		builder.append(parentDatabaseId);
 		builder.append("]");
 		return builder.toString();
 	}
+
+	
 }
