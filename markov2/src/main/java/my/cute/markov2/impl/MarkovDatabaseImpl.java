@@ -2,10 +2,6 @@ package my.cute.markov2.impl;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.HashMap;
@@ -209,10 +205,10 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		String path = this.path + "/" + this.id + "_" + timeStamp + ".txt";
 		for(File file : FileUtils.listFiles(new File(this.path), FileFilterUtils.suffixFileFilter(".database"), TrueFileFilter.TRUE)) {
 			try {
-				String databaseString = this.shardCache.getDatabaseString(file);
-				Files.write(Paths.get(path), databaseString.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+				this.shardCache.writeDatabaseShardString(file, path);
 			} catch (IOException e) {
-				logger.error("exception in trying to export " + this.toString() + " to text file (aborting): " + e.getLocalizedMessage());
+				logger.error("exception in trying to export " + this.toString() + " to text file, aborting! file: ' "
+						+ file.toString() + "', exception: " + e.getLocalizedMessage());
 				e.printStackTrace();
 				break;
 			}

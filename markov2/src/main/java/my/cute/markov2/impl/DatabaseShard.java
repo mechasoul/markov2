@@ -279,8 +279,28 @@ class DatabaseShard {
 		}
 		return sb.toString();
 	}
+	
+	void writeDatabaseStringToFile(String filePath) throws IOException {
+		Path path = Paths.get(filePath);
+		for(Map.Entry<Bigram, FollowingWordSet> bigramEntry : this.database.entrySet()) {
+			StringBuilder sb = new StringBuilder();
+			sb.append("(");
+			sb.append(bigramEntry.getKey().getWord1());
+			sb.append(", ");
+			sb.append(bigramEntry.getKey().getWord2());
+			sb.append(") -> {");
+			sb.append("count=");
+			sb.append(bigramEntry.getValue().size());
+			sb.append(", ");
+			sb.append(bigramEntry.getValue().toStringPlain());
+			sb.append("}\r\n");
+			Files.write(path, sb.toString().getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+		}
+	}
 
 	String getPrefix() {
 		return prefix;
 	}
+
+	
 }

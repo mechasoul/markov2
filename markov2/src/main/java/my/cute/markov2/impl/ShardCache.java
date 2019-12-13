@@ -1,6 +1,7 @@
 package my.cute.markov2.impl;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Map.Entry;
 import java.util.concurrent.Executor;
 
@@ -115,6 +116,10 @@ class ShardCache {
 		return this.shardLoader.getShardFromFile(file).getDatabaseString();
 	}
 	
+	public void writeDatabaseShardString(File file, String path) throws IOException {
+		this.shardLoader.getShardFromFile(file).writeDatabaseStringToFile(path);
+	}
+	
 	@SuppressWarnings("unused")
 	int getSize() {
 		int count=0;
@@ -140,4 +145,5 @@ class ShardCache {
 	void cleanUp() {
 		this.cache.cleanUp();
 	}
+	
 }
