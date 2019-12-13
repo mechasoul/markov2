@@ -26,7 +26,7 @@ import com.google.gson.reflect.TypeToken;
 
 import my.cute.markov2.MarkovDatabase;
 import my.cute.markov2.impl.Bigram;
-import my.cute.markov2.impl.FollowingWordSet;
+import my.cute.markov2.impl.LargeFollowingWordSet;
 import my.cute.markov2.impl.MarkovDatabaseBuilder;
 import my.cute.markov2.impl.MarkovDatabaseImpl;
 import my.cute.markov2.impl.MyThreadPool;
@@ -45,7 +45,7 @@ public class Test {
 			// TODO Auto-generated catch block
 			e2.printStackTrace();
 		}
-		String id = "shardtestmasterfull";
+		String id = "shardtest";
 		String path = "./test";
 		String inPath = "./testinput.txt";
 		File testFile = new File(inPath);
@@ -53,9 +53,10 @@ public class Test {
 		
 		MarkovDatabase db = new MarkovDatabaseBuilder(id, path)
 			.depth(2)
-			.shardCacheSize(1000)
-			.saveType(SaveType.JSON)
-			.executorService(null)
+			.shardCacheSize(8)
+			.saveType(SaveType.SERIALIZE)
+			.executorService(exec)
+			.fixedCleanupThreshold(0)
 			.build();
 		db.load();
 		List<String> testLines = null;
@@ -65,7 +66,7 @@ public class Test {
 		try (Stream<String> lines = Files.lines(Paths.get(inPath), StandardCharsets.UTF_8)){
 			tempTime1 = System.currentTimeMillis();
 			lines
-				//.limit(100000)
+				.limit(100000)
 				.forEach(string -> 
 			{
 				if(StringUtils.isWhitespace(string)) return;
@@ -75,15 +76,20 @@ public class Test {
 					long tempTime2 = System.currentTimeMillis();
 					System.out.print(count + " - ");
 					System.out.println(tempTime2 - tempTime1);
+//					if((tempTime2 - tempTime1) > 20000) {
+//						MarkovDatabaseImpl.LOG = true;
+//					} else {
+//						MarkovDatabaseImpl.LOG = false;
+//					}
 					tempTime1 = tempTime2;
 				}
-				if(count == 1346000) {
-					try {
-						Thread.sleep(4000);
-					} catch (InterruptedException e) {
-						e.printStackTrace();
-					}
-				}
+//				if(count == 1346000) {
+//					try {
+//						Thread.sleep(4000);
+//					} catch (InterruptedException e) {
+//						e.printStackTrace();
+//					}
+//				}
 			});
 		} catch (IOException e1) {
 			e1.printStackTrace();

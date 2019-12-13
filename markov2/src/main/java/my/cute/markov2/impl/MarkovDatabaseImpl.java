@@ -2,16 +2,11 @@ package my.cute.markov2.impl;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 import org.apache.commons.io.FileUtils;
@@ -52,7 +47,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		this.path = builder.getParentPath() + "/" + this.id;
 		this.depth = builder.getDepth();
 		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), builder.getDepth(), this.path, builder.getSaveType(),
-				builder.getExecutorService());
+				builder.getExecutorService(), builder.getFixedCleanupThreshold());
 	}
 	
 	
@@ -210,76 +205,13 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		String path = this.path + "/" + this.id + "_" + timeStamp + ".txt";
 		for(File file : FileUtils.listFiles(new File(this.path), FileFilterUtils.suffixFileFilter(".database"), TrueFileFilter.TRUE)) {
 			try {
-				String databaseString = this.shardCache.getDatabaseString(file);
-				Files.write(Paths.get(path), databaseString.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+				this.shardCache.writeDatabaseShardString(file, path);
 			} catch (IOException e) {
-				logger.error("exception in trying to export " + this.toString() + " to text file (aborting): " + e.getLocalizedMessage());
+				logger.error("exception in trying to export " + this.toString() + " to text file, aborting! file: ' "
+						+ file.toString() + "', exception: " + e.getLocalizedMessage());
 				e.printStackTrace();
 				break;
 			}
-		}
-	}
-	
-	/*
-	 * for testing
-	 * not getting rid of rn in case i need it
-	 */
-	public void printFollowingWordSetStats() {
-		ConcurrentHashMap<Integer, Integer> wordSetCounts = new ConcurrentHashMap<>();
-		ConcurrentHashMap<String, Integer> funStats = new ConcurrentHashMap<>();
-		int shardCount=0;
-		for(File file : FileUtils.listFiles(new File(this.path), FileFilterUtils.suffixFileFilter(".database"), TrueFileFilter.TRUE)) {
-			DatabaseShard shard = this.shardCache.getShardFromFile(file);
-			shard.addFollowingWordSetCounts(wordSetCounts, funStats);
-			shardCount++;
-			if(shardCount % 10 == 0) {
-				System.out.println(shardCount);
-			}
-		}
-		System.out.println("finished processing shards");
-		StringBuilder sb = new StringBuilder();
-		wordSetCounts.entrySet().stream().sorted((first, second) ->
-		{
-			if(first.getValue() < second.getValue()) {
-				return 1;
-			} else if (first.getValue() > second.getValue()) {
-				return -1;
-			} else {
-				if(first.getKey() < second.getKey()) {
-					return -1;
-				} else if (first.getKey() > second.getKey()) {
-					return 1;
-				} else {
-					return 0;
-				}
-			}
-		}).forEach((Map.Entry<Integer, Integer> entry) -> 
-		{
-			sb.append(entry.getKey());
-			sb.append(",");
-			sb.append(entry.getValue());
-			sb.append("\r\n");
-		});
-		StringBuilder fun = new StringBuilder();
-		funStats.entrySet().stream().sorted((first, second) ->
-		{
-			if(first.getValue() < second.getValue()) {
-				return 1;
-			} else if (first.getValue() > second.getValue()) {
-				return -1;
-			} else {
-				return 0;
-			}
-		}).forEach(entry ->
-		{
-			fun.append(entry.getKey());
-			fun.append("\r\n");
-		});
-		try {
-			FileUtils.writeStringToFile(new File("./followingwordsetsizes.txt"), sb.toString(), StandardCharsets.UTF_8, false);
-			FileUtils.writeStringToFile(new File("./followingwordsetpopular.txt"), fun.toString(), StandardCharsets.UTF_8, true);
-		} catch (IOException e) {
-			e.printStackTrace();
 		}
 	}
 

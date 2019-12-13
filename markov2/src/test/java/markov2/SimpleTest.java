@@ -7,6 +7,9 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.lang3.StringUtils;
 
+import gnu.trove.iterator.TObjectIntIterator;
+import gnu.trove.map.TObjectIntMap;
+import gnu.trove.map.hash.TObjectIntHashMap;
 import my.cute.markov2.MarkovDatabase;
 import my.cute.markov2.impl.MarkovDatabaseBuilder;
 import my.cute.markov2.impl.SaveType;
@@ -15,26 +18,25 @@ public class SimpleTest {
 
 	public static void main(String[] args) {
 		
-		String id = "smalltest";
-		String path = "./test";
-		String inPath = "./testinput.txt";
-		File testFile = new File(inPath);
-		
-		MarkovDatabase db = new MarkovDatabaseBuilder(id, path)
-			.depth(1)
-			.shardCacheSize(1)
-			.saveType(SaveType.JSON)
-			//.executorService(MyThreadPool.INSTANCE)
-			.build();
-		db.load();
-		List<String> testLines = null;
-		long time1 = System.currentTimeMillis();
-		System.out.println("starting processing");
-		db.processLine(tokenize("hello hi how are you how are hello hi hello"));
-		db.processLine(tokenize("i am well how are you doing today just wondering id like to know"));
-		db.save();
-		System.out.println("finished in " + getFormattedTime(System.currentTimeMillis() - time1));
-		db.exportToTextFile();
+		TObjectIntMap<String> map = new TObjectIntHashMap<String>(7, 0.8f);
+		System.out.println(map);
+		map.adjustOrPutValue("dicks", 1, 1);
+		System.out.println(map);
+		map.adjustOrPutValue("dicks", 1, 1);
+		System.out.println(map);
+		map.adjustOrPutValue("hello", 1, 1);
+		System.out.println(map);
+		map.adjustOrPutValue("dicks", 1, 1);
+		System.out.println(map);
+		map.adjustOrPutValue("smile", 1, 1);
+		System.out.println(map);
+		map.adjustOrPutValue("dicks", 1, 1);
+		System.out.println(map);
+		TObjectIntIterator<String> it = map.iterator();
+		for(int i=0; i < map.size(); i++) {
+			it.advance();
+			System.out.println(it.key());
+		}
 	}
 
 	private static List<String> tokenize(String string) {

@@ -5,15 +5,15 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.StandardOpenOption;
 import java.util.Map;
 import java.util.Random;
-import java.util.concurrent.ConcurrentMap;
+
+import org.nustaq.serialization.FSTObjectInput;
+import org.nustaq.serialization.FSTObjectOutput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,11 +47,11 @@ class StartDatabaseShard extends DatabaseShard {
 		String word = "";
 		int count = RANDOM.nextInt(this.totalCount);
 		for(Map.Entry<Bigram, FollowingWordSet> entry : this.database.entrySet()) {
-			if(count < entry.getValue().getTotalWordCount()) {
+			if(count < entry.getValue().size()) {
 				word = entry.getKey().getWord2();
 				break;
 			} else {
-				count -= entry.getValue().getTotalWordCount();
+				count -= entry.getValue().size();
 			}
 		}
 		
@@ -82,20 +82,20 @@ class StartDatabaseShard extends DatabaseShard {
 	@Override
 	void saveAsObject() throws IOException {
 		FileOutputStream fileOutputStream = new FileOutputStream(this.path.toString());
-		ObjectOutputStream objectOutputStream = new ObjectOutputStream(fileOutputStream);
-		objectOutputStream.writeObject(this.database);
-		objectOutputStream.writeObject(this.totalCount);
-		objectOutputStream.close();	
+		FSTObjectOutput out = CONF.getObjectOutput(fileOutputStream);
+		out.writeObject(this.database, DatabaseWrapper.class);
+		out.writeInt(this.totalCount);
+		out.flush();
+		fileOutputStream.close();
 	}
 	
 	@Override
-	@SuppressWarnings("unchecked")
-	void loadFromObject() throws FileNotFoundException, IOException, ClassNotFoundException {
+	void loadFromObject() throws Exception {
 		FileInputStream fileInputStream = new FileInputStream(this.path.toString());
-		ObjectInputStream objectInputStream = new ObjectInputStream(fileInputStream);
-		this.database = (ConcurrentMap<Bigram, FollowingWordSet>) objectInputStream.readObject();
-		this.totalCount = (Integer) objectInputStream.readObject();
-		objectInputStream.close();
+		FSTObjectInput in = CONF.getObjectInput(fileInputStream);
+		this.database = (DatabaseWrapper) in.readObject(DatabaseWrapper.class);
+		this.totalCount = in.readInt();
+		fileInputStream.close();
 	}
 
 	@Override

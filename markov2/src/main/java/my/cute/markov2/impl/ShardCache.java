@@ -1,6 +1,7 @@
 package my.cute.markov2.impl;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Map.Entry;
 import java.util.concurrent.Executor;
 
@@ -25,12 +26,18 @@ class ShardCache {
 	private final SaveType saveType;
 	private final ShardLoader shardLoader;
 	private final StartDatabaseShard startShard;
+	private final int cleanupThreshold;
+	private final boolean fixedCleanup;
 	
-	ShardCache(String i, int c, int depth, String path, SaveType save, Executor executorService) {
+	private int cleanCount = 0;
+	
+	ShardCache(String i, int c, int depth, String path, SaveType save, Executor executorService, int cleanupThreshold) {
 		this.id = i;
 		this.capacity = c;
 		this.saveType = save;
 		this.shardLoader = new ShardLoader(this.id, path, depth, this.saveType);
+		this.cleanupThreshold = cleanupThreshold;
+		this.fixedCleanup = this.cleanupThreshold > 0;
 		this.cache = Caffeine.newBuilder()
 				.maximumSize(this.capacity)
 				.executor(executorService == null ? Runnable::run : executorService)
@@ -71,7 +78,6 @@ class ShardCache {
 	 * also see DatabaseShard.addFollowingWord()
 	 */
 	void addFollowingWord(String key, Bigram bigram, String followingWord) {
-		//this.cache.cleanUp();
 		if(key == MarkovDatabaseImpl.START_PREFIX) {
 			//start shard always being loaded means concurrency problems w/
 			//reloading shards are avoided so we can just call method directly
@@ -86,6 +92,8 @@ class ShardCache {
 				return shard;
 			});
 		}
+		
+		this.checkFixedCleanup();
 	}
 	
 	StartDatabaseShard getStartShard() {
@@ -108,6 +116,10 @@ class ShardCache {
 		return this.shardLoader.getShardFromFile(file).getDatabaseString();
 	}
 	
+	public void writeDatabaseShardString(File file, String path) throws IOException {
+		this.shardLoader.getShardFromFile(file).writeDatabaseStringToFile(path);
+	}
+	
 	@SuppressWarnings("unused")
 	int getSize() {
 		int count=0;
@@ -121,7 +133,17 @@ class ShardCache {
 		return this.shardLoader.getShardFromFile(file);
 	}
 	
+	private void checkFixedCleanup() {
+		if(!this.fixedCleanup) return;
+		this.cleanCount++;
+		if(this.cleanCount >= this.cleanupThreshold) {
+			this.cleanCount = 0;
+			this.cache.cleanUp();
+		}
+	}
+	
 	void cleanUp() {
 		this.cache.cleanUp();
 	}
+	
 }

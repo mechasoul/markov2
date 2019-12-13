@@ -7,7 +7,7 @@ public enum MyStringPool implements Interner<String> {
 	
 	INSTANCE;
 	
-	private final Interner<String> interner = Interners.newStrongInterner();
+	private final Interner<String> interner = Interners.newWeakInterner();
 
 	@Override
 	public String intern(String sample) {

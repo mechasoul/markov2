@@ -6,8 +6,6 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -17,9 +15,11 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 import org.apache.commons.io.FileUtils;
+import org.nustaq.serialization.FSTConfiguration;
+import org.nustaq.serialization.FSTObjectInput;
+import org.nustaq.serialization.FSTObjectOutput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,8 +33,19 @@ class DatabaseShard {
 	protected static final Gson GSON = new GsonBuilder()
 		.enableComplexMapKeySerialization()
 		.create();
-	protected static final Type DATABASE_TYPE = new TypeToken<ConcurrentHashMap<Bigram, FollowingWordSet>>() {}.getType();
+	protected static final Type DATABASE_TYPE = new TypeToken<DatabaseWrapper>() {}.getType();
 	private static final SaveType DEFAULT_SAVE_TYPE = SaveType.JSON;
+	private static final int LARGE_WORD_SET_THRESHOLD = 24;
+	
+	protected static final FSTConfiguration CONF = FSTConfiguration.getDefaultConfiguration();
+	
+	static {
+    	CONF.registerClass(ConcurrentHashMap.class, Bigram.class, String.class, DatabaseWrapper.class, SmallFollowingWordSet.class, LargeFollowingWordSet.class);
+    	CONF.registerSerializer(Bigram.class, new Bigram.Serializer(), true);
+    	CONF.registerSerializer(DatabaseWrapper.class, new DatabaseWrapper.Serializer(), true);
+    	CONF.registerSerializer(SmallFollowingWordSet.class, new FollowingWordSet.Serializer(), true);
+    	CONF.registerSerializer(LargeFollowingWordSet.class, new FollowingWordSet.Serializer(), true);
+	}
 	
 	protected final String parentDatabaseId;
 	/*
@@ -49,7 +60,13 @@ class DatabaseShard {
 	 */
 	protected String prefix;
 	protected Path path;
-	protected ConcurrentMap<Bigram, FollowingWordSet> database;
+	/*
+	 * database maps bigram to a followingwordset representing the words following that bigram
+	 * starts as a light arraylist-based implementation and switches to a hashmap-based one
+	 * once the followingwordset reaches a certain size
+	 * goal is to minimize memory use as much as possible, sacrificing speed if necessary (to a point...)
+	 */
+	protected DatabaseWrapper database;
 	
 	DatabaseShard(String id, String p, String parentPath, int depth) {
 		this.parentDatabaseId = id;
@@ -62,7 +79,7 @@ class DatabaseShard {
 			e.printStackTrace();
 		}
 		this.path = Paths.get(pathString);
-		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(6);
+		this.database = new DatabaseWrapper(this.prefix, this.parentDatabaseId);
 	}
 	
 	DatabaseShard(String id, String p, String parentPath) {
@@ -71,22 +88,28 @@ class DatabaseShard {
 	
 	/*
 	 * returns true if new entry in followingwordset was created as a result of this call
-	 * maybe source of all the concurrency problems? this is a check-then-act race i think
-	 * i feel like its fine though? but maybe with the addNewBigram() stuff some entries fall through
-	 * not sure how it wasn't working properly when we were synchronizing on prefix locks tho? whatever
+	 * is only used in atomic compute() context
+	 * so the concurrency issues here (eg replacing FollowingWordSet) shouldnt actually be issues
+	 * & consequently be careful using this if not synchronizing or w/e
 	 */
 	boolean addFollowingWord(Bigram bigram, String followingWord) {
 		FollowingWordSet followingWordSet = this.database.get(bigram);
 		if(followingWordSet != null) {
 			followingWordSet.addWord(followingWord);
+			//check for replacing small set with large
+			//better way to do this?
+			if(followingWordSet.size() >= LARGE_WORD_SET_THRESHOLD && followingWordSet instanceof SmallFollowingWordSet) {
+				this.database.put(bigram, new LargeFollowingWordSet((SmallFollowingWordSet)followingWordSet));
+			}
 			return false;
 		} else {
 			return this.addNewBigram(bigram, followingWord);
 		}
 	}
 	
+	//start with smallfollowingwordset
 	private boolean addNewBigram(Bigram bigram, String followingWord) {
-		return this.database.putIfAbsent(bigram, new FollowingWordSet(followingWord)) == null;
+		return this.database.putIfAbsent(bigram, new SmallFollowingWordSet(followingWord, bigram, this.parentDatabaseId)) == null;
 	}
 	
 	/*
@@ -149,10 +172,10 @@ class DatabaseShard {
 				this.loadFromObject();
 			} catch (FileNotFoundException e) {
 				//logger.info("couldn't load (deserialize) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
-			} catch (IOException | ClassNotFoundException e) {
+			} catch (Exception e) {
 				logger.error("couldn't load (deserialize) " + this.toString() + ": " + e.getLocalizedMessage());
 				e.printStackTrace();
-			}
+			} 
 		}
 	}
 	
@@ -169,17 +192,17 @@ class DatabaseShard {
 	
 	void saveAsObject() throws IOException {
 		FileOutputStream fileOutputStream = new FileOutputStream(this.path.toString());
-		ObjectOutputStream objectOutputStream = new ObjectOutputStream(fileOutputStream);
-		objectOutputStream.writeObject(this.database);
-		objectOutputStream.close();	
+		FSTObjectOutput out = CONF.getObjectOutput(fileOutputStream);
+		out.writeObject(this.database, DatabaseWrapper.class);
+		out.flush();
+		fileOutputStream.close();
 	}
 
-	@SuppressWarnings("unchecked")
-	void loadFromObject() throws FileNotFoundException, IOException, ClassNotFoundException {
-			FileInputStream fileInputStream = new FileInputStream(this.path.toString());
-			ObjectInputStream objectInputStream = new ObjectInputStream(fileInputStream);
-			this.database = (ConcurrentMap<Bigram, FollowingWordSet>) objectInputStream.readObject();
-			objectInputStream.close();
+	void loadFromObject() throws Exception {
+		FileInputStream fileInputStream = new FileInputStream(this.path.toString());
+		FSTObjectInput in = CONF.getObjectInput(fileInputStream);
+		this.database = (DatabaseWrapper) in.readObject(DatabaseWrapper.class);
+		fileInputStream.close();
 	}
 	
 	/*
@@ -238,7 +261,7 @@ class DatabaseShard {
 	
 	/*
 	 * more human readable toString() basically
-	 * maybe this shouuld just be that
+	 * maybe this should just be that
 	 */
 	String getDatabaseString() {
 		StringBuilder sb = new StringBuilder();
@@ -249,46 +272,35 @@ class DatabaseShard {
 			sb.append(bigramEntry.getKey().getWord2());
 			sb.append(") -> {");
 			sb.append("count=");
-			sb.append(bigramEntry.getValue().getTotalWordCount());
-			for(Map.Entry<String, Integer> wordEntry : bigramEntry.getValue()) {
-				sb.append(", ");
-				sb.append("(");
-				sb.append(wordEntry.getKey());
-				sb.append(", ");
-				sb.append(wordEntry.getValue());
-				sb.append(")");
-			}
+			sb.append(bigramEntry.getValue().size());
+			sb.append(", ");
+			sb.append(bigramEntry.getValue().toStringPlain());
 			sb.append("}\r\n");
 		}
 		return sb.toString();
+	}
+	
+	void writeDatabaseStringToFile(String filePath) throws IOException {
+		Path path = Paths.get(filePath);
+		for(Map.Entry<Bigram, FollowingWordSet> bigramEntry : this.database.entrySet()) {
+			StringBuilder sb = new StringBuilder();
+			sb.append("(");
+			sb.append(bigramEntry.getKey().getWord1());
+			sb.append(", ");
+			sb.append(bigramEntry.getKey().getWord2());
+			sb.append(") -> {");
+			sb.append("count=");
+			sb.append(bigramEntry.getValue().size());
+			sb.append(", ");
+			sb.append(bigramEntry.getValue().toStringPlain());
+			sb.append("}\r\n");
+			Files.write(path, sb.toString().getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+		}
 	}
 
 	String getPrefix() {
 		return prefix;
 	}
+
 	
-	/*
-	 * for testing
-	 * see MarkovDatabaseImpl.printFollowingWordSetStats()
-	 * get rid of when dont need anymore
-	 */
-	void addFollowingWordSetCounts(ConcurrentHashMap<Integer, Integer> countMap, ConcurrentHashMap<String, Integer> stats) {
-		for(Map.Entry<Bigram, FollowingWordSet> dbEntry : this.database.entrySet()) {
-			FollowingWordSet wordSet = dbEntry.getValue();
-			synchronized(wordSet) {
-				for(Map.Entry<String, Integer> entry : wordSet) {
-					countMap.compute(entry.getValue(), (key, value) ->
-					{
-						if(value == null) return 1;
-						else return value+1;
-					});
-					if(entry.getValue() >= 1000 && entry.getValue() <= 3000) {
-						stats.put(dbEntry.getKey().getWord1()
-									+ " " + dbEntry.getKey().getWord2() + " " + entry.getKey()
-									+ " - " + entry.getValue(), entry.getValue());
-					}
-				}
-			}
-		}
-	}
 }
