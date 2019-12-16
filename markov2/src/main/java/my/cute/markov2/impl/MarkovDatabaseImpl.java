@@ -188,6 +188,39 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 			return END_TOKEN;
 		}
 	}
+	
+	public boolean removeLine(List<String> words) throws FollowingWordRemovalException {
+		
+		if(words.size() == 0) {
+			logger.warn("attempt to remove empty word list in " + this.toString());
+			return false;
+		}
+		
+		//first ensure that entire word list exists in db
+		
+		//at least one element present by above so this get() never throws exception
+		Bigram currentBigram = new Bigram(START_TOKEN, stripTokens(MyStringPool.INSTANCE.intern(words.get(0))));
+		for(int i=1; i < words.size(); i++) {
+			String followingWord = stripTokens(MyStringPool.INSTANCE.intern(words.get(i)));
+			if(!this.getShard(currentBigram).contains(currentBigram, followingWord)) {
+				return false;
+			}
+			currentBigram = new Bigram(currentBigram.getWord2(), followingWord);
+		}
+		if(!this.getShard(currentBigram).contains(currentBigram, END_TOKEN)) {
+			return false;
+		}
+		
+		//now perform the actual removals
+		currentBigram = new Bigram(START_TOKEN, stripTokens(MyStringPool.INSTANCE.intern(words.get(0))));
+		for(int i=1; i < words.size(); i++) {
+			String followingWord = stripTokens(MyStringPool.INSTANCE.intern(words.get(i)));
+			this.getShard(currentBigram).removeFollowingWord(currentBigram, followingWord);
+			currentBigram = new Bigram(currentBigram.getWord2(), followingWord);
+		}
+		this.getShard(currentBigram).removeFollowingWord(currentBigram, END_TOKEN);
+		return true;
+	}
 
 	@Override
 	public void save() {
@@ -242,14 +275,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 
 	@Override
 	public void load() {
-		//does nothing
-		//shouldnt be specified by interface?
-	}
-
-	@Override
-	public int getSize() {
-		//?
-		return 0;
+		this.shardCache.load();
 	}
 
 }

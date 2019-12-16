@@ -57,7 +57,7 @@ class ShardCache {
 				//CacheLoader rule
 				//i seriously think method reference notation is way less readable?
 				.build(prefix -> this.createDatabaseShard(prefix));
-		this.startShard = this.shardLoader.loadStartShard(this.shardLoader.createStartShard());
+		this.startShard = this.shardLoader.createStartShard();
 //		(prefix, executor) -> 
 //		CompletableFuture.supplyAsync(() -> this.shardLoader.createAndLoadShard(prefix), executor)
 	}
@@ -78,6 +78,7 @@ class ShardCache {
 	 * also see DatabaseShard.addFollowingWord()
 	 */
 	void addFollowingWord(String key, Bigram bigram, String followingWord) {
+		//note the use of == here so this will break if strings aren't intern'd
 		if(key == MarkovDatabaseImpl.START_PREFIX) {
 			//start shard always being loaded means concurrency problems w/
 			//reloading shards are avoided so we can just call method directly
@@ -91,6 +92,41 @@ class ShardCache {
 				shard.addFollowingWord(bigram, followingWord);
 				return shard;
 			});
+		}
+		
+		this.checkFixedCleanup();
+	}
+	
+	/*
+	 * throws FollowingWordRemovalException if the given followingWord wasn't successfully 
+	 * removed from the fws for the given bigram in the shard with the given key prefix
+	 * (exception propagated from DatabaseShard.removeFollowingWord(Bigram, String))
+	 */
+	void removeFollowingWord(String key, Bigram bigram, String followingWord) throws FollowingWordRemovalException {
+		if(key == MarkovDatabaseImpl.START_PREFIX) {
+			this.startShard.removeFollowingWord(bigram, followingWord);
+		} else {
+			try {
+				/*
+				 * need to use atomic compute to avoid concurrency issues which then 
+				 * necessitates this awkward try-catch bs to get the thrown exception 
+				 * out from the lambda so it can be thrown from this method 
+				 */
+				this.cache.asMap().compute(key, (prefix, shard) ->
+				{
+					if(shard == null) shard = createDatabaseShard(prefix);
+					try {
+						shard.removeFollowingWord(bigram, followingWord);
+					} catch (FollowingWordRemovalException e) {
+						//exception encountered. throw runtimeexception to catch it outside of lambda
+						throw new UncheckedFollowingWordRemovalException(e);
+					}
+					return shard;
+				});
+			} catch (UncheckedFollowingWordRemovalException ex) {
+				//rethrow the checked exception
+				throw ex.getCause();
+			}
 		}
 		
 		this.checkFixedCleanup();
@@ -144,6 +180,13 @@ class ShardCache {
 	
 	void cleanUp() {
 		this.cache.cleanUp();
+	}
+	
+	/*
+	 * prepare cache for use
+	 */
+	void load() {
+		this.shardLoader.loadStartShard(this.startShard);
 	}
 	
 }

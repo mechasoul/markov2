@@ -95,6 +95,26 @@ interface FollowingWordSet {
 	 */
 	public int size();
 	
+	/*
+	 * returns true if the given followingWord has been recorded at least once for this
+	 * followingwordset. performance may be O(n) on size of set, so should be used 
+	 * sparingly
+	 */
+	public boolean contains(String followingWord);
+	
+	/*
+	 * removes one instance of the given followingWord being used for this set. if the
+	 * given followingWord doesn't exist, the set will be unchanged
+	 * returns true if the set changed as a result of this call
+	 * performance may be O(n), so should be used sparingly
+	 */
+	public boolean remove(String followingWord);
+	
+	/*
+	 * returns true if this set is empty
+	 */
+	public boolean isEmpty();
+	
 	public Bigram getBigram();
 	
 	public String getId();

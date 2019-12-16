@@ -99,7 +99,7 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 	LargeFollowingWordSet(SmallFollowingWordSet set) {
 		this.totalWordCount = 0;
 		this.words = TCollections.synchronizedMap(new TObjectIntHashMap<String>(set.size() * 5 / 4, 0.8f));
-		synchronized(set) {
+		synchronized(set.getRawWords()) {
 			for(String word : set) {
 				this.addWord(word);
 				this.incrementTotal();
@@ -135,7 +135,7 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 		String chosenWord = "hello";
 		int count = RANDOM.nextInt(this.totalWordCount);
 		//need to synchronize when iterating over THashMap
-		synchronized(this) {
+		synchronized(this.words) {
 			TObjectIntIterator<String> iterator = this.words.iterator();
 			for(int i=0; i < this.words.size(); i++) {
 				iterator.advance();
@@ -156,6 +156,39 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 		return this.totalWordCount;
 	}
 	
+	/*
+	 * O(1) for this implementation of FollowingWordSet
+	 */
+	@Override
+	public boolean contains(String followingWord) {
+		return this.words.containsKey(followingWord);
+	}
+
+	@Override
+	public boolean remove(String followingWord) {
+		boolean result = this.words.adjustValue(followingWord, -1);
+		int newValue = this.words.get(followingWord);
+		if(result) {
+			//followingWord was found and adjusted down 1. check if it's now 0
+			if(newValue == 0) {
+				//new value is 0, so removed followingWord from set
+				int removedValue = this.words.remove(followingWord);
+				//check for race condition in case this value was modified at the same time
+				if(removedValue != 0) {
+					//something added a value at the same time. put amount back in
+					this.words.adjustOrPutValue(followingWord, removedValue, removedValue);
+				}
+			}
+			this.decrementTotal();
+		}
+		return result;
+	}
+	
+	@Override
+	public boolean isEmpty() {
+		return this.words.isEmpty();
+	}
+	
 	@Override
 	public Bigram getBigram() {
 		return this.bigram;
@@ -172,6 +205,10 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 	
 	private void incrementTotal() {
 		this.totalWordCount++;
+	}
+	
+	private void decrementTotal() {
+		this.totalWordCount--;
 	}
 	
 	/*
@@ -234,25 +271,25 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 		return FollowingWordSet.Type.LARGE;
 	}
 
-	/*
-	 * synchronized because trove collections must be manually synchronized on when iterating
-	 */
 	@Override
-	public synchronized void writeToOutput(FSTObjectOutput out) throws IOException {
-
+	public void writeToOutput(FSTObjectOutput out) throws IOException {
 		out.writeInt(this.getType().getValue());
 		out.writeInt(this.numEntries());
 		try {
-			this.forEachEntry((word, count) ->
-			{
-				out.writeUTF(word);
-				out.writeInt(count);
-				return true;
-			});
+			synchronized(this.words) {
+				this.forEachEntry((word, count) ->
+				{
+					out.writeUTF(word);
+					out.writeInt(count);
+					return true;
+				});
+			}
 		} catch (UncheckedIOException ex) {
 			//rethrow outside of lambda
 			throw ex.getCause();
 		}
 	}
+
+	
 
 }

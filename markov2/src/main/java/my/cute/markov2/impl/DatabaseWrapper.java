@@ -159,6 +159,10 @@ class DatabaseWrapper implements Serializable {
 	public Set<Map.Entry<Bigram, FollowingWordSet>> entrySet() {
 		return this.database.entrySet();
 	}
+	
+	boolean remove(Bigram bigram) {
+		return this.database.remove(bigram) != null;
+	}
 
 	public String getPrefix() {
 		return this.prefix;

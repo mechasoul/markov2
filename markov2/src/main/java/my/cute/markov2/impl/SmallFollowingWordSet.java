@@ -93,6 +93,31 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 		return this.words.size();
 	}
 	
+	/*
+	 * O(n) for this implementation of FollowingWordSet. use sparingly
+	 */
+	@Override
+	public boolean contains(String followingWord) {
+		synchronized(this.words) {
+			return this.words.contains(followingWord);
+		}
+	}
+
+	/*
+	 * O(n) for this implementation of FollowingWordSet. use sparingly
+	 */
+	@Override
+	public boolean remove(String followingWord) {
+		synchronized(this.words) {
+			return this.words.remove(followingWord);
+		}
+	}
+	
+	@Override
+	public boolean isEmpty() {
+		return this.words.isEmpty();
+	}
+	
 	@Override
 	public Bigram getBigram() {
 		return this.bigram;
@@ -111,7 +136,12 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 		return this.words.iterator();
 	}
 
-	
+	/*
+	 * for synchronizing on
+	 */
+	List<String> getRawWords() {
+		return this.words;
+	}
 
 	@Override
 	public int hashCode() {
@@ -162,15 +192,16 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 	}
 
 	@Override
-	public synchronized void writeToOutput(FSTObjectOutput out) throws IOException {
+	public void writeToOutput(FSTObjectOutput out) throws IOException {
 		
 		out.writeInt(this.getType().getValue());
 		out.writeInt(this.size());
-		for(String word : this) {
-			out.writeUTF(word);
+		synchronized(this.words) {
+			for(String word : this) {
+				out.writeUTF(word);
+			}
 		}
 	}
 
 	
-
 }

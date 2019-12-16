@@ -124,6 +124,48 @@ class DatabaseShard {
 		return followingWordSet.getRandomWeightedWord();
 	}
 	
+	/*
+	 * checks for existence of the given followingword for the given bigram
+	 * returns true if the bigram exists in the database and the given followingword
+	 * has been recorded for that bigram at least once, and false otherwise (the given
+	 * followingword has never been used for the given bigram, or the given bigram has 
+	 * never been used)
+	 */
+	boolean contains(Bigram bigram, String followingWord) {
+		FollowingWordSet followingWordSet = this.database.get(bigram);
+		if(followingWordSet == null) return false;
+		
+		return followingWordSet.contains(followingWord);
+	}
+	
+	/*
+	 * similar to addFollowingWord(Bigram, String), there are concurrency problems
+	 * here if this isnt done in an atomic context
+	 * note this method should only be called if the given followingWord is known 
+	 * to exist in the followingwordset for the given bigram
+	 * throws FollowingWordRemovalException if the bigram is not found in the db,
+	 * 		or if the given word is not found in the fws for the given bigram
+	 */
+	void removeFollowingWord(Bigram bigram, String followingWord) throws FollowingWordRemovalException {
+		FollowingWordSet followingWordSet = this.database.get(bigram);
+		if(followingWordSet == null) throw new FollowingWordRemovalException("illegal attempt to remove word '" 
+				+ followingWord + "' from fws for bigram " + bigram + " in " + this + ": fws not found for given bigram");
+		
+		if(followingWordSet.remove(followingWord)) {
+			if(followingWordSet.isEmpty()) {
+				this.remove(bigram);
+			}
+		} else {
+			//remove was unsuccessful, so structure of shard is probably not what was expected
+			throw new FollowingWordRemovalException("illegal attempt to remove word '" + followingWord + "' from fws for bigram "
+					+ bigram + " in " + this + ": word not found");
+		}
+	}
+	
+	boolean remove(Bigram bigram) {
+		return this.database.remove(bigram);
+	}
+	
 	void save() {
 		this.save(DEFAULT_SAVE_TYPE);
 	}
@@ -282,8 +324,9 @@ class DatabaseShard {
 	
 	void writeDatabaseStringToFile(String filePath) throws IOException {
 		Path path = Paths.get(filePath);
+		StringBuilder sb = new StringBuilder();
+		int count=0;
 		for(Map.Entry<Bigram, FollowingWordSet> bigramEntry : this.database.entrySet()) {
-			StringBuilder sb = new StringBuilder();
 			sb.append("(");
 			sb.append(bigramEntry.getKey().getWord1());
 			sb.append(", ");
@@ -294,7 +337,12 @@ class DatabaseShard {
 			sb.append(", ");
 			sb.append(bigramEntry.getValue().toStringPlain());
 			sb.append("}\r\n");
-			Files.write(path, sb.toString().getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+			count++;
+			if(count >= 1000) {
+				Files.write(path, sb.toString().getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+				sb = new StringBuilder();
+				count = 0;
+			}
 		}
 	}
 
