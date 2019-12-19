@@ -103,6 +103,12 @@ interface FollowingWordSet {
 	public boolean contains(String followingWord);
 	
 	/*
+	 * same as above, but returns true if the given followingWord has been recorded
+	 * at least the given number of times for this followingwordset
+	 */
+	public boolean contains(String followingWord, int count);
+	
+	/*
 	 * removes one instance of the given followingWord being used for this set. if the
 	 * given followingWord doesn't exist, the set will be unchanged
 	 * returns true if the set changed as a result of this call

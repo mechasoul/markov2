@@ -12,9 +12,13 @@ import java.util.regex.Pattern;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.filefilter.FileFilterUtils;
 import org.apache.commons.io.filefilter.TrueFileFilter;
+import org.apache.commons.lang3.tuple.ImmutablePair;
+import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import gnu.trove.map.TObjectIntMap;
+import gnu.trove.map.hash.TObjectIntHashMap;
 import my.cute.markov2.MarkovDatabase;
 
 public class MarkovDatabaseImpl implements MarkovDatabase {
@@ -85,7 +89,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private void addFollowingWordForBigram(Bigram bigram, String followingWord) {
-		this.shardCache.addFollowingWord(this.getPrefix(bigram.getWord1()), bigram, MyStringPool.INSTANCE.intern(followingWord));
+		this.shardCache.addFollowingWord(this.getPrefix(bigram.getWord1()), bigram, followingWord);
 	}
 	
 	private DatabaseShard getShard(Bigram bigram) {
@@ -189,6 +193,45 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		}
 	}
 	
+	@Override
+	public boolean contains(List<String> words) {
+		if(words.size() == 0) {
+			logger.warn("attempt to remove empty word list in " + this.toString());
+			return true;
+		}
+		
+		//this map will track the number of occurrences of each bigram->word pair in the given list
+		TObjectIntMap<Pair<Bigram, String>> bigramWordCounts = new TObjectIntHashMap<>(words.size() * 4 / 3);
+		//at least one element present by above check so this get() never throws exception
+		Bigram currentBigram = new Bigram(START_TOKEN, stripTokens(MyStringPool.INSTANCE.intern(words.get(0))));
+		for(int i=1; i < words.size(); i++) {
+			String followingWord = stripTokens(MyStringPool.INSTANCE.intern(words.get(i)));
+			bigramWordCounts.adjustOrPutValue(new ImmutablePair<Bigram, String>(currentBigram, followingWord), 1, 1);
+			currentBigram = new Bigram(currentBigram.getWord2(), followingWord);
+		}
+		bigramWordCounts.adjustOrPutValue(new ImmutablePair<Bigram, String>(currentBigram, END_TOKEN), 1, 1);
+		
+		//now check each entry in the map to make sure it's contained in db
+		//if any contains() returns false, forEachEntry() call terminates and returns false
+		//otherwise, returns true once finished
+		/*
+		 * TODO change this
+		 * needs to go through shardCache so it can be used in an atomic compute() context
+		 * directly referencing the shard leads to concurrency problems occasionally when
+		 * reading/writing on other thread
+		 */
+		return bigramWordCounts.forEachEntry((pair, count) ->
+		{
+			return this.getShard(pair.getLeft()).contains(pair.getLeft(), pair.getRight(), count);
+//			return this.contains(pair.getLeft(), pair.getRight(), count);
+		});
+	}
+	
+	private boolean contains(Bigram bigram, String followingWord, int count) {
+		return this.shardCache.contains(this.getPrefix(bigram.getWord1()), bigram, followingWord, count);
+	}
+	
+	@Override
 	public boolean removeLine(List<String> words) throws FollowingWordRemovalException {
 		
 		if(words.size() == 0) {
@@ -196,30 +239,24 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 			return false;
 		}
 		
-		//first ensure that entire word list exists in db
-		
-		//at least one element present by above so this get() never throws exception
-		Bigram currentBigram = new Bigram(START_TOKEN, stripTokens(MyStringPool.INSTANCE.intern(words.get(0))));
-		for(int i=1; i < words.size(); i++) {
-			String followingWord = stripTokens(MyStringPool.INSTANCE.intern(words.get(i)));
-			if(!this.getShard(currentBigram).contains(currentBigram, followingWord)) {
-				return false;
-			}
-			currentBigram = new Bigram(currentBigram.getWord2(), followingWord);
-		}
-		if(!this.getShard(currentBigram).contains(currentBigram, END_TOKEN)) {
+		//preemptively check for presence of entire line in db to avoid partial removal
+		if(!this.contains(words)) {
 			return false;
 		}
 		
 		//now perform the actual removals
-		currentBigram = new Bigram(START_TOKEN, stripTokens(MyStringPool.INSTANCE.intern(words.get(0))));
+		Bigram currentBigram = new Bigram(START_TOKEN, stripTokens(MyStringPool.INSTANCE.intern(words.get(0))));
 		for(int i=1; i < words.size(); i++) {
 			String followingWord = stripTokens(MyStringPool.INSTANCE.intern(words.get(i)));
-			this.getShard(currentBigram).removeFollowingWord(currentBigram, followingWord);
+			this.removeFollowingWordForBigram(currentBigram, followingWord);
 			currentBigram = new Bigram(currentBigram.getWord2(), followingWord);
 		}
-		this.getShard(currentBigram).removeFollowingWord(currentBigram, END_TOKEN);
+		this.removeFollowingWordForBigram(currentBigram, END_TOKEN);
 		return true;
+	}
+	
+	private void removeFollowingWordForBigram(Bigram bigram, String followingWord) throws FollowingWordRemovalException {
+		this.shardCache.removeFollowingWord(this.getPrefix(bigram.getWord1()), bigram, followingWord);
 	}
 
 	@Override
@@ -260,7 +297,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	private static String stripTokens(String input) {
 		String replacedWord = tokenReplacements.get(input);
 		if(replacedWord == null) {
-			return MyStringPool.INSTANCE.intern(input);
+			return input;
 		} else {
 			return replacedWord;
 		}
@@ -277,5 +314,8 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	public void load() {
 		this.shardCache.load();
 	}
+
+
+	
 
 }

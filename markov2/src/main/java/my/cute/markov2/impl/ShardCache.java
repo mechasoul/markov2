@@ -132,6 +132,29 @@ class ShardCache {
 		this.checkFixedCleanup();
 	}
 	
+	/*
+	 * jank as hell
+	 */
+	boolean contains(String key, Bigram bigram, String followingWord, int count) {
+		if(key == MarkovDatabaseImpl.START_PREFIX) {
+			return this.startShard.contains(bigram, followingWord, count);
+		} else {
+			try {
+				this.cache.asMap().compute(key, (prefix, shard) ->
+				{
+					if(shard == null) shard = createDatabaseShard(prefix);
+					if(!shard.contains(bigram, followingWord, count)) {
+						throw new UncheckedFollowingWordRemovalException();
+					}
+					return shard;
+				});
+			} catch (UncheckedFollowingWordRemovalException ex) {
+				return false;
+			}
+			return true;
+		}
+	}
+	
 	StartDatabaseShard getStartShard() {
 		return this.startShard;
 	}

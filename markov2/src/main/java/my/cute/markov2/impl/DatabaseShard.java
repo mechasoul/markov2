@@ -138,6 +138,13 @@ class DatabaseShard {
 		return followingWordSet.contains(followingWord);
 	}
 	
+	boolean contains(Bigram bigram, String followingWord, int count) {
+		FollowingWordSet followingWordSet = this.database.get(bigram);
+		if(followingWordSet == null) return false;
+		
+		return followingWordSet.contains(followingWord, count);
+	}
+	
 	/*
 	 * similar to addFollowingWord(Bigram, String), there are concurrency problems
 	 * here if this isnt done in an atomic context

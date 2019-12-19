@@ -25,6 +25,23 @@ public interface MarkovDatabase {
 	public String generateLine(String startingWord);
 	
 	/*
+	 * used to check if the database has processed the given line (as a list of words)
+	 * not sure why this would really be needed for general use but might as well
+	 * since it's used for removeLine()
+	 * 
+	 * note that because of the limited memory of markov chains it's possible for
+	 * this to return true even if the exact given line has never been processed,
+	 * if multiple other lines have been processed that result in the db containing
+	 * the same data as it'd have from processing this line. this should basically
+	 * never matter though
+	 * 
+	 * returns true if the given line has been processed in the database (ie, every
+	 * bigram -> word contained within the line exists in the database as many times
+	 * as it occurs in the line)
+	 */
+	public boolean contains(List<String> words);
+	
+	/*
 	 * removes an occurrence of the given line as a list of words
 	 * could be used for eg removing lines that are old to cap db size
 	 * DANGER should only use this on exact lines that are known to have been

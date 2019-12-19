@@ -9,6 +9,10 @@ public class UncheckedFollowingWordRemovalException extends RuntimeException {
 		this.cause = ex;
 	}
 	
+	public UncheckedFollowingWordRemovalException() {
+		this.cause = null;
+	}
+
 	@Override
 	public FollowingWordRemovalException getCause() {
 		return this.cause;

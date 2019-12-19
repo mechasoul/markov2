@@ -163,6 +163,11 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 	public boolean contains(String followingWord) {
 		return this.words.containsKey(followingWord);
 	}
+	
+	@Override
+	public boolean contains(String followingWord, int count) {
+		return (this.words.get(followingWord) >= count);
+	}
 
 	@Override
 	public boolean remove(String followingWord) {

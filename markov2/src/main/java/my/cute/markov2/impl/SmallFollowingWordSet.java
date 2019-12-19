@@ -102,6 +102,13 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 			return this.words.contains(followingWord);
 		}
 	}
+	
+	@Override
+	public boolean contains(String followingWord, int count) {
+		synchronized(this.words) {
+			return (Collections.frequency(this.words, followingWord) >= count);
+		}
+	}
 
 	/*
 	 * O(n) for this implementation of FollowingWordSet. use sparingly
