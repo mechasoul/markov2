@@ -3,6 +3,7 @@ package my.cute.markov2.impl;
 import java.io.IOException;
 import java.io.Serializable;
 import java.io.UncheckedIOException;
+import java.util.List;
 
 import org.nustaq.serialization.FSTObjectOutput;
 import org.nustaq.serialization.annotations.Flat;
@@ -99,7 +100,7 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 	LargeFollowingWordSet(SmallFollowingWordSet set) {
 		this.totalWordCount = 0;
 		this.words = TCollections.synchronizedMap(new TObjectIntHashMap<String>(set.size() * 5 / 4, 0.8f));
-		synchronized(set.getRawWords()) {
+		synchronized(set.getWords()) {
 			for(String word : set) {
 				this.addWord(word);
 				this.incrementTotal();
@@ -293,6 +294,11 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 			//rethrow outside of lambda
 			throw ex.getCause();
 		}
+	}
+
+	@Override
+	public List<String> getWords() {
+		throw new UnsupportedOperationException("can't get wordlist from LargeFollowingWordSet");
 	}
 
 	

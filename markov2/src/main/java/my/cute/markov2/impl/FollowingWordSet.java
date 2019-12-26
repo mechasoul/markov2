@@ -1,6 +1,7 @@
 package my.cute.markov2.impl;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Random;
 
 import org.nustaq.serialization.FSTBasicObjectSerializer;
@@ -17,7 +18,8 @@ interface FollowingWordSet {
 	
 	public static enum Type {
 		SMALL(0),
-		LARGE(1);
+		LARGE(1),
+		TINY(2);
 		
 		private int value;
 		
@@ -145,4 +147,10 @@ interface FollowingWordSet {
 	 * returns a minimal String representation of the set's contents
 	 */
 	public String toStringPlain();
+	
+	/*
+	 * get raw wordlist that backs the fws
+	 * questionable
+	 */
+	public List<String> getWords();
 }

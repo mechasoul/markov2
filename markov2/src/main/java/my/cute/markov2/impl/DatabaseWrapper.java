@@ -23,6 +23,8 @@ import org.nustaq.serialization.annotations.Flat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.ImmutableList;
+
 import gnu.trove.TCollections;
 import gnu.trove.map.TObjectIntMap;
 import gnu.trove.map.hash.TObjectIntHashMap;
@@ -75,6 +77,13 @@ class DatabaseWrapper implements Serializable {
 						list.add(MyStringPool.INSTANCE.intern(in.readUTF()));
 					}
 					fws = new SmallFollowingWordSet(list, bigram, id);
+				} else if(type == FollowingWordSet.Type.TINY) {
+					int listSize = in.readInt();
+					ImmutableList.Builder<String> builder = ImmutableList.<String>builderWithExpectedSize(listSize);
+					for(int j=0; j < listSize; j++) {
+						builder.add(MyStringPool.INSTANCE.intern(in.readUTF()));
+					}
+					fws = TinyFollowingWordSet.of(builder.build());
 				} else {
 					//type == FollowingWordSet.Type.LARGE
 					int mapSize = in.readInt();

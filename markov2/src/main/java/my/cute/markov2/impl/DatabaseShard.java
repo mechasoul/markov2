@@ -34,17 +34,20 @@ class DatabaseShard {
 		.enableComplexMapKeySerialization()
 		.create();
 	protected static final Type DATABASE_TYPE = new TypeToken<DatabaseWrapper>() {}.getType();
-	private static final SaveType DEFAULT_SAVE_TYPE = SaveType.JSON;
+	private static final SaveType DEFAULT_SAVE_TYPE = SaveType.SERIALIZE;
 	private static final int LARGE_WORD_SET_THRESHOLD = 24;
+	private static final int SMALL_WORD_SET_THRESHOLD = 4;
 	
 	protected static final FSTConfiguration CONF = FSTConfiguration.getDefaultConfiguration();
 	
 	static {
-    	CONF.registerClass(ConcurrentHashMap.class, Bigram.class, String.class, DatabaseWrapper.class, SmallFollowingWordSet.class, LargeFollowingWordSet.class);
+    	CONF.registerClass(ConcurrentHashMap.class, Bigram.class, String.class, DatabaseWrapper.class, SmallFollowingWordSet.class, 
+    			LargeFollowingWordSet.class, TinyFollowingWordSet.class);
     	CONF.registerSerializer(Bigram.class, new Bigram.Serializer(), true);
     	CONF.registerSerializer(DatabaseWrapper.class, new DatabaseWrapper.Serializer(), true);
     	CONF.registerSerializer(SmallFollowingWordSet.class, new FollowingWordSet.Serializer(), true);
     	CONF.registerSerializer(LargeFollowingWordSet.class, new FollowingWordSet.Serializer(), true);
+    	CONF.registerSerializer(TinyFollowingWordSet.class, new FollowingWordSet.Serializer(), true);
 	}
 	
 	protected final String parentDatabaseId;
@@ -95,11 +98,19 @@ class DatabaseShard {
 	boolean addFollowingWord(Bigram bigram, String followingWord) {
 		FollowingWordSet followingWordSet = this.database.get(bigram);
 		if(followingWordSet != null) {
-			followingWordSet.addWord(followingWord);
-			//check for replacing small set with large
-			//better way to do this?
-			if(followingWordSet.size() >= LARGE_WORD_SET_THRESHOLD && followingWordSet instanceof SmallFollowingWordSet) {
-				this.database.put(bigram, new LargeFollowingWordSet((SmallFollowingWordSet)followingWordSet));
+			if(followingWordSet instanceof TinyFollowingWordSet) {
+				if(followingWordSet.size() >= SMALL_WORD_SET_THRESHOLD) {
+					this.database.put(bigram, new SmallFollowingWordSet(followingWordSet, followingWord, bigram, this.parentDatabaseId));
+				} else {
+					this.database.put(bigram, TinyFollowingWordSet.of(followingWordSet, followingWord));
+				}
+			} else {
+				followingWordSet.addWord(followingWord);
+				//check for replacing small set with large
+				//better way to do this?
+				if(followingWordSet.size() >= LARGE_WORD_SET_THRESHOLD && followingWordSet instanceof SmallFollowingWordSet) {
+					this.database.put(bigram, new LargeFollowingWordSet((SmallFollowingWordSet)followingWordSet));
+				}
 			}
 			return false;
 		} else {
@@ -107,9 +118,9 @@ class DatabaseShard {
 		}
 	}
 	
-	//start with smallfollowingwordset
+	//start with tinyfollowingwordset
 	private boolean addNewBigram(Bigram bigram, String followingWord) {
-		return this.database.putIfAbsent(bigram, new SmallFollowingWordSet(followingWord, bigram, this.parentDatabaseId)) == null;
+		return this.database.putIfAbsent(bigram, TinyFollowingWordSet.of(followingWord)) == null;
 	}
 	
 	/*
@@ -158,15 +169,25 @@ class DatabaseShard {
 		if(followingWordSet == null) throw new FollowingWordRemovalException("illegal attempt to remove word '" 
 				+ followingWord + "' from fws for bigram " + bigram + " in " + this + ": fws not found for given bigram");
 		
-		if(followingWordSet.remove(followingWord)) {
-			if(followingWordSet.isEmpty()) {
-				this.remove(bigram);
+		if(followingWordSet instanceof TinyFollowingWordSet) {
+			this.database.put(bigram, TinyFollowingWordSet.remove((TinyFollowingWordSet)followingWordSet, followingWord));
+			if(followingWordSet.size() == this.database.get(bigram).size()) {
+				throw new FollowingWordRemovalException("illegal attempt to remove word '" + followingWord
+						+ "' from tiny fws for bigram " + bigram + " in " + this + "! old fws: " + followingWordSet 
+						+ ", new fws: " + this.database.get(bigram));	
 			}
 		} else {
-			//remove was unsuccessful, so structure of shard is probably not what was expected
-			throw new FollowingWordRemovalException("illegal attempt to remove word '" + followingWord + "' from fws for bigram "
-					+ bigram + " in " + this + ": word not found");
+			if(followingWordSet.remove(followingWord)) {
+				if(followingWordSet.isEmpty()) {
+					this.remove(bigram);
+				}
+			} else {
+				//remove was unsuccessful, so structure of shard is probably not what was expected
+				throw new FollowingWordRemovalException("illegal attempt to remove word '" + followingWord + "' from fws for bigram "
+						+ bigram + " in " + this + ": word not found");
+			}
 		}
+		
 	}
 	
 	boolean remove(Bigram bigram) {
