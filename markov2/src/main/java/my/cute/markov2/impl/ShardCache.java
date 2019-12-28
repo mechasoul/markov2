@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Map.Entry;
 import java.util.concurrent.Executor;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -28,6 +29,7 @@ class ShardCache {
 	private final StartDatabaseShard startShard;
 	private final int cleanupThreshold;
 	private final boolean fixedCleanup;
+	private final ReentrantLock saveLock = new ReentrantLock();
 	
 	private int cleanCount = 0;
 	
@@ -51,7 +53,9 @@ class ShardCache {
 					@Override
 					public void delete(@NonNull String key, @Nullable DatabaseShard value,
 							@NonNull RemovalCause cause) {
-						value.save(saveType);
+						synchronized(saveLock) {
+							value.save(saveType);
+						}
 					}
 				})
 				//CacheLoader rule
@@ -165,10 +169,12 @@ class ShardCache {
 	
 	void save() {
 		this.cache.cleanUp();
-		for(Entry<String, DatabaseShard> entry : this.cache.asMap().entrySet()) {
-			entry.getValue().save(this.saveType);
+		synchronized(this.saveLock) {
+			for(Entry<String, DatabaseShard> entry : this.cache.asMap().entrySet()) {
+				entry.getValue().save(this.saveType);
+			}
+			this.startShard.save(this.saveType);
 		}
-		this.startShard.save(this.saveType);
 	}
 	
 	String getDatabaseString(File file) {
@@ -210,6 +216,13 @@ class ShardCache {
 	 */
 	void load() {
 		this.shardLoader.loadStartShard(this.startShard);
+	}
+	
+	ReentrantLock getSaveLock() {
+		return this.saveLock;
+	}
+	ReentrantLock getLoadLock() {
+		return this.shardLoader.getLoadLock();
 	}
 	
 }

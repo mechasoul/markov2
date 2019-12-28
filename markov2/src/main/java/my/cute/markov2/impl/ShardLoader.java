@@ -1,6 +1,7 @@
 package my.cute.markov2.impl;
 
 import java.io.File;
+import java.util.concurrent.locks.ReentrantLock;
 
 public final class ShardLoader {
 
@@ -8,6 +9,7 @@ public final class ShardLoader {
 	private final String path;
 	private final int depth;
 	private final SaveType saveType;
+	private final ReentrantLock loadLock = new ReentrantLock();
 	
 	ShardLoader(String i, String p, int d, SaveType save) {
 		this.id = i;
@@ -23,7 +25,9 @@ public final class ShardLoader {
 	
 	DatabaseShard createAndLoadShard(String prefix) {
 		DatabaseShard shard = new DatabaseShard(this.id, prefix, this.path, this.depth);
-		shard.load(this.saveType);
+		synchronized(this.loadLock) {
+			shard.load(this.saveType);
+		}
 		return shard;
 	}
 	
@@ -33,7 +37,9 @@ public final class ShardLoader {
 	}
 	
 	StartDatabaseShard loadStartShard(StartDatabaseShard shard) {
-		shard.load(this.saveType);
+		synchronized(this.loadLock) {
+			shard.load(this.saveType);
+		}
 		return shard;
 	}
 	
@@ -50,6 +56,10 @@ public final class ShardLoader {
 		} else {
 			return this.createAndLoadShard(prefix);
 		}
+	}
+	
+	ReentrantLock getLoadLock() {
+		return this.loadLock;
 	}
 	
 }
