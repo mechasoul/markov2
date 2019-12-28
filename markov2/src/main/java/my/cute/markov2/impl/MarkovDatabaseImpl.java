@@ -17,6 +17,8 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.ImmutableList;
+
 import gnu.trove.map.TObjectIntMap;
 import gnu.trove.map.hash.TObjectIntHashMap;
 import my.cute.markov2.MarkovDatabase;
@@ -30,9 +32,11 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	static final String TOTAL_TOKEN = MyStringPool.INSTANCE.intern("<_total>");
 	static final String END_TOKEN = MyStringPool.INSTANCE.intern("<_end>");
 	private static final Map<String, String> tokenReplacements;
-	static final String ZERO_DEPTH_PREFIX = "~database";
+	static final String ZERO_DEPTH_PREFIX = "~full_database";
 	static final String START_PREFIX = "~start";
 	static final int MAX_WORDS_PER_LINE = 256;
+	private static final String DATABASE_DIRECTORY_NAME = "~database";
+	private static final String BACKUP_DIRECTORY_NAME = "~backups";
 	
 	static {
 		tokenReplacements = new HashMap<String, String>(4, 1f);
@@ -48,26 +52,13 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	
 	MarkovDatabaseImpl(MarkovDatabaseBuilder builder) {
 		this.id = builder.getId();
-		this.path = builder.getParentPath() + "/" + this.id;
+		this.path = builder.getParentPath() + File.separator + this.id;
 		this.depth = builder.getDepth();
-		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), builder.getDepth(), this.path, builder.getSaveType(),
+		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), builder.getDepth(), this.path 
+				+ File.separator + DATABASE_DIRECTORY_NAME, builder.getSaveType(),
 				builder.getExecutorService(), builder.getFixedCleanupThreshold());
 	}
 	
-	
-	/*
-	 * TODO
-	 * some kind of backup save/loading mechanic
-	 * eg save every shard (ie everything inside this.path) to a zip or something
-	 * and allow restoring from a zip or w/e
-	 * should be a part of markovdb interface
-	 */
-	
-	
-	/*
-	 * (non-Javadoc)
-	 * @see my.cute.markov.MarkovDatabase#processLine(java.util.ArrayList)
-	 */
 	@Override
 	public void processLine(List<String> words) {
 		if(words.size() == 0) {
@@ -214,15 +205,12 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		//now check each entry in the map to make sure it's contained in db
 		//if any contains() returns false, forEachEntry() call terminates and returns false
 		//otherwise, returns true once finished
-		/*
-		 * TODO change this
-		 * needs to go through shardCache so it can be used in an atomic compute() context
-		 * directly referencing the shard leads to concurrency problems occasionally when
-		 * reading/writing on other thread
-		 */
 		return bigramWordCounts.forEachEntry((pair, count) ->
 		{
 			return this.getShard(pair.getLeft()).contains(pair.getLeft(), pair.getRight(), count);
+			//TODO do any concurrency problems occur from calling contains directly on the shard as above?
+			//they do for add/remove but those actually modify the db and contains doesnt so maybe this is ok?
+			//seems fine from testing but something to consider
 //			return this.contains(pair.getLeft(), pair.getRight(), count);
 		});
 	}
@@ -263,6 +251,23 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	public void save() {
 		this.shardCache.save();
 	}
+	
+	@Override
+	public void load() {
+		this.shardCache.load();
+	}
+	
+	@Override
+	public void saveBackup(String backupName) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void loadBackup(String backupName) {
+		// TODO Auto-generated method stub
+		
+	}
 
 	@Override
 	public void exportToTextFile() {
@@ -272,7 +277,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		 * like everything else, breaks if outside sources modify db files
 		 */
 		String timeStamp = new SimpleDateFormat("yyyyMMdd-HHmmss").format(Calendar.getInstance().getTime());
-		String path = this.path + "/" + this.id + "_" + timeStamp + ".txt";
+		String path = this.path + File.separator + this.id + "_" + timeStamp + ".txt";
 		for(File file : FileUtils.listFiles(new File(this.path), FileFilterUtils.suffixFileFilter(".database"), TrueFileFilter.TRUE)) {
 			try {
 				this.shardCache.writeDatabaseShardString(file, path);
@@ -310,10 +315,10 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		return sb.toString();
 	}
 
-	@Override
-	public void load() {
-		this.shardCache.load();
-	}
+	
+
+
+	
 
 
 	

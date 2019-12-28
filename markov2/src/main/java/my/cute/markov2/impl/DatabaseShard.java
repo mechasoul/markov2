@@ -271,13 +271,13 @@ class DatabaseShard {
 	 */
 	private String determinePath(String parentPath, int depth) {
 		//special shard path for zero depth database
-		if(depth == 0) return parentPath + "/" + this.prefix + ".database";
+		if(depth == 0) return parentPath + File.separator + this.prefix + ".database";
 		StringBuilder sb = new StringBuilder(parentPath);
-		sb.append("/");
+		sb.append(File.separator);
 		int index = 0;
 		while(index < depth) {
 			sb.append(this.prefix.charAt(index));
-			sb.append("/");
+			sb.append(File.separator);
 			index++;
 		}
 		sb.append(this.prefix);

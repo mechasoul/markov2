@@ -77,6 +77,13 @@ public interface MarkovDatabase {
 	public void load();
 	
 	/*
+	 * used to save/load database to/from a backup
+	 */
+	public void saveBackup(String backupName);
+	
+	public void loadBackup(String backupName);
+	
+	/*
 	 * exports database contents to an easily human-readable format
 	 * time intensive for larger databases
 	 * should really be separately threaded
