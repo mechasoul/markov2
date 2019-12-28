@@ -2,12 +2,23 @@ package my.cute.markov2.impl;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.UncheckedIOException;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.filefilter.FileFilterUtils;
@@ -258,8 +269,63 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	@Override
-	public void saveBackup(String backupName) {
-		// TODO Auto-generated method stub
+	public void saveBackup(String backupName) throws IOException {
+		final File backupDir = new File(this.path + File.separator + BACKUP_DIRECTORY_NAME);
+		backupDir.mkdirs();
+		
+		final Path databaseDirectory = Paths.get((this.path + File.separator + DATABASE_DIRECTORY_NAME));
+		final Path targetFile = Paths.get(this.path + File.separator + BACKUP_DIRECTORY_NAME
+				+ File.separator + this.id + "_" + backupName + ".zip");
+		Path createdFile;
+		try {
+			createdFile = Files.createFile(targetFile);
+		} catch (FileAlreadyExistsException ex) {
+			createdFile = Files.createTempFile(Paths.get(this.path + File.separator + BACKUP_DIRECTORY_NAME), null, null);
+			Files.copy(targetFile, Paths.get(targetFile.toString() + ".bak"), StandardCopyOption.REPLACE_EXISTING);
+		}
+		synchronized(this.getSaveLock()) {
+			try (OutputStream os = Files.newOutputStream(createdFile);
+				ZipOutputStream zipStream = new ZipOutputStream(os);
+			) {
+				try (Stream<Path> stream = Files.walk(databaseDirectory))
+				{
+					stream.filter(path -> Files.isDirectory(path))
+					.forEach(path ->
+					{
+						ZipEntry zipEntry = new ZipEntry(databaseDirectory.relativize(path).toString());
+						try {
+							zipStream.putNextEntry(zipEntry);
+							Files.copy(path, zipStream);
+							zipStream.flush();
+							zipStream.closeEntry();
+						} catch (IOException ex) {
+							throw new UncheckedIOException(ex);
+						}
+					});
+				}
+			} catch (UncheckedIOException ex) {
+				throw ex.getCause();
+			}
+		}
+		
+		//zip created, need to move files around now if backup already existed
+		if(!createdFile.equals(targetFile)) {
+			try {
+				Files.delete(targetFile);
+				Files.copy(createdFile, targetFile);
+				Files.delete(createdFile);
+				Files.delete(Paths.get(targetFile.toString() + ".bak"));
+			} catch (Exception ex) {
+				//encountered exception. attempt to recover the backup from our backup of the backup
+				//any ioexception encountered here gets propagated as usual
+				logger.error("exception encountered when finalizing backed up files during backup creation for backup "
+						+ backupName + " in " + this + ": " + ex.toString());
+				Files.deleteIfExists(targetFile);
+				Files.copy(Paths.get(targetFile.toString() + ".bak"), targetFile, StandardCopyOption.REPLACE_EXISTING);
+				Files.delete(Paths.get(targetFile.toString() + ".bak"));
+				logger.info("successfully recovered backup " + backupName + " in " + this);
+			}
+		}
 		
 	}
 
@@ -267,6 +333,14 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	public void loadBackup(String backupName) {
 		// TODO Auto-generated method stub
 		
+	}
+	
+	private ReentrantLock getSaveLock() {
+		return this.shardCache.getSaveLock();
+	}
+	
+	private ReentrantLock getLoadLock() {
+		return this.shardCache.getLoadLock();
 	}
 
 	@Override

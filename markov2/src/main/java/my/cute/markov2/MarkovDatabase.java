@@ -1,5 +1,6 @@
 package my.cute.markov2;
 
+import java.io.IOException;
 import java.util.List;
 
 import my.cute.markov2.impl.FollowingWordRemovalException;
@@ -79,9 +80,9 @@ public interface MarkovDatabase {
 	/*
 	 * used to save/load database to/from a backup
 	 */
-	public void saveBackup(String backupName);
+	public void saveBackup(String backupName) throws IOException;
 	
-	public void loadBackup(String backupName);
+	public void loadBackup(String backupName) throws IOException;
 	
 	/*
 	 * exports database contents to an easily human-readable format
