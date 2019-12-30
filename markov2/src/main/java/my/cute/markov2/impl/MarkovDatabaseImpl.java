@@ -1,11 +1,14 @@
 package my.cute.markov2.impl;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
@@ -18,6 +21,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 import org.apache.commons.io.FileUtils;
@@ -27,8 +31,6 @@ import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.ImmutableList;
 
 import gnu.trove.map.TObjectIntMap;
 import gnu.trove.map.hash.TObjectIntHashMap;
@@ -68,6 +70,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), builder.getDepth(), this.path 
 				+ File.separator + DATABASE_DIRECTORY_NAME, builder.getSaveType(),
 				builder.getExecutorService(), builder.getFixedCleanupThreshold());
+		new File(this.path + File.separator + BACKUP_DIRECTORY_NAME).mkdirs();
 	}
 	
 	@Override
@@ -269,13 +272,11 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	@Override
-	public void saveBackup(String backupName) throws IOException {
-		final File backupDir = new File(this.path + File.separator + BACKUP_DIRECTORY_NAME);
-		backupDir.mkdirs();
+	public Path saveBackup(String backupName) throws IOException {
+		this.save();
 		
-		final Path databaseDirectory = Paths.get((this.path + File.separator + DATABASE_DIRECTORY_NAME));
-		final Path targetFile = Paths.get(this.path + File.separator + BACKUP_DIRECTORY_NAME
-				+ File.separator + this.id + "_" + backupName + ".zip");
+		final Path databaseDirectory = Paths.get(this.path + File.separator + DATABASE_DIRECTORY_NAME);
+		final Path targetFile = this.getBackupPath(backupName);
 		Path createdFile;
 		try {
 			createdFile = Files.createFile(targetFile);
@@ -284,55 +285,139 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 			Files.copy(targetFile, Paths.get(targetFile.toString() + ".bak"), StandardCopyOption.REPLACE_EXISTING);
 		}
 		synchronized(this.getSaveLock()) {
-			try (OutputStream os = Files.newOutputStream(createdFile);
-				ZipOutputStream zipStream = new ZipOutputStream(os);
-			) {
-				try (Stream<Path> stream = Files.walk(databaseDirectory))
-				{
-					stream.filter(path -> Files.isDirectory(path))
-					.forEach(path ->
-					{
-						ZipEntry zipEntry = new ZipEntry(databaseDirectory.relativize(path).toString());
-						try {
-							zipStream.putNextEntry(zipEntry);
-							Files.copy(path, zipStream);
-							zipStream.flush();
-							zipStream.closeEntry();
-						} catch (IOException ex) {
-							throw new UncheckedIOException(ex);
-						}
-					});
-				}
-			} catch (UncheckedIOException ex) {
-				throw ex.getCause();
-			}
-		}
-		
-		//zip created, need to move files around now if backup already existed
-		if(!createdFile.equals(targetFile)) {
 			try {
-				Files.delete(targetFile);
-				Files.copy(createdFile, targetFile);
-				Files.delete(createdFile);
-				Files.delete(Paths.get(targetFile.toString() + ".bak"));
+				this.pack(databaseDirectory, createdFile);
+				//zip created, need to move files around now if backup already existed
+				if(!createdFile.equals(targetFile)) {
+				
+					Files.delete(targetFile);
+					Files.copy(createdFile, targetFile);
+					Files.delete(createdFile);
+					Files.delete(Paths.get(targetFile.toString() + ".bak"));
+				} 
 			} catch (Exception ex) {
 				//encountered exception. attempt to recover the backup from our backup of the backup
-				//any ioexception encountered here gets propagated as usual
-				logger.error("exception encountered when finalizing backed up files during backup creation for backup "
-						+ backupName + " in " + this + ": " + ex.toString());
-				Files.deleteIfExists(targetFile);
-				Files.copy(Paths.get(targetFile.toString() + ".bak"), targetFile, StandardCopyOption.REPLACE_EXISTING);
-				Files.delete(Paths.get(targetFile.toString() + ".bak"));
-				logger.info("successfully recovered backup " + backupName + " in " + this);
+				//if it exists
+				if(!createdFile.equals(targetFile)) {
+					logger.error("exception encountered during backup creation for backup "
+							+ backupName + " in " + this + ": " + ex.toString());
+					logger.error("attempting to restore previously existing backup");
+					Files.deleteIfExists(targetFile);
+					Files.copy(Paths.get(targetFile.toString() + ".bak"), targetFile, StandardCopyOption.REPLACE_EXISTING);
+					Files.delete(Paths.get(targetFile.toString() + ".bak"));
+					logger.error("successfully recovered backup " + backupName + " in " + this + ". backup creation aborted, "
+							+ "rethrowing exception");
+				}
+				throw ex;
 			}
 		}
 		
+		return targetFile;
+	}
+	
+	private void pack(Path directoryToPack, Path zipFile) throws IOException {
+		try (OutputStream os = Files.newOutputStream(zipFile);
+				ZipOutputStream zipStream = new ZipOutputStream(os);
+		) {
+			try (Stream<Path> stream = Files.walk(directoryToPack))
+			{
+				stream.filter(path -> !Files.isDirectory(path))
+				.forEach(path ->
+				{
+					ZipEntry zipEntry = new ZipEntry(directoryToPack.relativize(path).toString());
+					try {
+						zipStream.putNextEntry(zipEntry);
+						Files.copy(path, zipStream);
+						zipStream.flush();
+						zipStream.closeEntry();
+					} catch (IOException ex) {
+						throw new UncheckedIOException(ex);
+					}
+				});
+			}
+		} catch (UncheckedIOException ex) {
+			throw ex.getCause();
+		}
 	}
 
 	@Override
-	public void loadBackup(String backupName) {
-		// TODO Auto-generated method stub
+	public void loadBackup(String backupName) throws FileNotFoundException, IOException {
+		final Path targetBackup = this.getBackupPath(backupName);
 		
+		if(!Files.isRegularFile(targetBackup)) {
+			throw new FileNotFoundException("backup '" + backupName + "' not found for " + this);
+		}
+		logger.info("beginning loading backup of database " + this + " (from backup '" + backupName + "')");
+		//first save a backup of current database state so we can try to restore it if load fails
+		String tempBackupName = new SimpleDateFormat("yyyyMMdd-HHmmss").format(Calendar.getInstance().getTime()) + "_tmp";
+		logger.info(this + "-load-" + backupName + ": saving temp backup '" + tempBackupName + " for recovery");
+		Path tempBackup = this.saveBackup(tempBackupName);
+		logger.info(this + "-load-" + backupName + ": finished saving temp backup. deleting current database files");
+		
+		synchronized(this.getLoadLock()) {
+			synchronized(this.getSaveLock()) {
+				//delete all current database files
+				final String databaseDirectory = this.path + File.separator + DATABASE_DIRECTORY_NAME;
+				FileUtils.deleteDirectory(new File(databaseDirectory));
+				
+				logger.info(this + "-load-" + backupName + ": finished deleting database. unpacking backup");
+				try {
+					this.unpack(targetBackup, Paths.get(databaseDirectory));
+				} catch (Exception ex) {
+					logger.error(this + "-load-" + backupName + ": encountered exception when trying to unpack backup: "
+							+ ex.getMessage());
+					ex.printStackTrace();
+					logger.error(this + "-load-" + backupName + ": attempting to load from temp backup");
+					this.unpack(tempBackup, Paths.get(databaseDirectory));
+					logger.error(this + "-load-" + backupName + ": successfully unpacked temp backup. deleting temp backup");
+					Files.delete(tempBackup);
+					logger.error(this + "-load-" + backupName + ": temp backup deleted. aborting backup load");
+					throw ex;
+				}
+				logger.info(this + "-load-" + backupName + ": finished unpacking backup. deleting temp backup");
+			}
+		}
+		Files.delete(tempBackup);
+		logger.info(this + "-load-" + backupName + ": temp backup deleted. backup successfully loaded");
+	}
+	
+	/*
+	 * probably needs some kind of validation check for zipslip vulnerability
+	 * but skipping that for now
+	 */
+	private void unpack(Path zipFile, Path directory) throws IOException {
+		try (InputStream is = Files.newInputStream(zipFile);
+				ZipInputStream zipStream = new ZipInputStream(is);
+		) {
+			ZipEntry zipEntry;
+			while((zipEntry = zipStream.getNextEntry()) != null) {
+				final Path outputFile = directory.resolve(zipEntry.getName());
+				if(zipEntry.isDirectory()) {
+					try {
+						Files.createDirectory(outputFile);
+					} catch (FileAlreadyExistsException ex) {
+						//continue
+					}
+				} else {
+					Files.copy(zipStream, outputFile);
+				}
+			}
+		}	
+	}
+	
+	@Override 
+	public boolean deleteBackup(String backupName) throws IOException {
+		try {
+			Files.delete(this.getBackupPath(backupName));
+		} catch (NoSuchFileException ex) {
+			return false;
+		}
+		return true;
+	}
+	
+	private Path getBackupPath(String backupName) {
+		return Paths.get(this.path + File.separator + BACKUP_DIRECTORY_NAME
+				+ File.separator + this.id + "_" + backupName + ".zip");
 	}
 	
 	private ReentrantLock getSaveLock() {

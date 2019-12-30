@@ -1,6 +1,8 @@
 package my.cute.markov2;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 
 import my.cute.markov2.impl.FollowingWordRemovalException;
@@ -78,11 +80,23 @@ public interface MarkovDatabase {
 	public void load();
 	
 	/*
-	 * used to save/load database to/from a backup
+	 * used to save database to a backup (.zip)
+	 * takes a name used to identify the backup. if a backup already exists with the given
+	 * name, it will be overwritten
+	 * returns a Path to the created database backup file
 	 */
-	public void saveBackup(String backupName) throws IOException;
+	public Path saveBackup(String backupName) throws IOException;
 	
-	public void loadBackup(String backupName) throws IOException;
+	/*
+	 * used to load database from a backup (.zip)
+	 */
+	public void loadBackup(String backupName) throws FileNotFoundException, IOException;
+	
+	/*
+	 * used to delete a backup with the given name
+	 * returns true if a backup was deleted as a result of this call, false otherwise
+	 */
+	public boolean deleteBackup(String backupName) throws IOException;
 	
 	/*
 	 * exports database contents to an easily human-readable format
