@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 import gnu.trove.map.TObjectIntMap;
 import gnu.trove.map.hash.TObjectIntHashMap;
 import my.cute.markov2.MarkovDatabase;
+import my.cute.markov2.exceptions.FollowingWordRemovalException;
 
 public class MarkovDatabaseImpl implements MarkovDatabase {
 	

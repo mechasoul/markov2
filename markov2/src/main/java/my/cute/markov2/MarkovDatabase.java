@@ -5,7 +5,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 
-import my.cute.markov2.impl.FollowingWordRemovalException;
+import my.cute.markov2.exceptions.FollowingWordRemovalException;
 
 public interface MarkovDatabase {
 

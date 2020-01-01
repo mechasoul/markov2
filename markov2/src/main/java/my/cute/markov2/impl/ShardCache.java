@@ -16,6 +16,9 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 
+import my.cute.markov2.exceptions.FollowingWordRemovalException;
+import my.cute.markov2.exceptions.UncheckedFollowingWordRemovalException;
+
 class ShardCache {
 	
 	@SuppressWarnings("unused")

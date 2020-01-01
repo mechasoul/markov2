@@ -27,6 +27,8 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
+import my.cute.markov2.exceptions.FollowingWordRemovalException;
+
 class DatabaseShard {
 
 	private static final Logger logger = LoggerFactory.getLogger(DatabaseShard.class);
