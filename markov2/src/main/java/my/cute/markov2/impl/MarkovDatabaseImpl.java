@@ -312,6 +312,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 			}
 		}
 		
+		logger.info(this + "-save-" + backupName + ": finished saving backup");
 		return targetFile;
 	}
 	
@@ -350,7 +351,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		logger.info("beginning loading backup of database " + this + " (from backup '" + backupName + "')");
 		//first save a backup of current database state so we can try to restore it if load fails
 		String tempBackupName = new SimpleDateFormat("yyyyMMdd-HHmmss").format(Calendar.getInstance().getTime()) + "_tmp";
-		logger.info(this + "-load-" + backupName + ": saving temp backup '" + tempBackupName + " for recovery");
+		logger.info(this + "-load-" + backupName + ": saving temp backup '" + tempBackupName + "' for recovery");
 		Path tempBackup = this.saveBackup(tempBackupName);
 		logger.info(this + "-load-" + backupName + ": finished saving temp backup. deleting current database files");
 		
@@ -399,6 +400,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 						//continue
 					}
 				} else {
+					Files.createDirectories(outputFile.getParent());
 					Files.copy(zipStream, outputFile);
 				}
 			}
@@ -412,6 +414,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		} catch (NoSuchFileException ex) {
 			return false;
 		}
+		logger.info(this + "-delete-" + backupName + ": successfully deleted backup");
 		return true;
 	}
 	
