@@ -52,8 +52,6 @@ public class Test {
 		ForkJoinPool exec = ForkJoinPool.commonPool();
 		
 		MarkovDatabase db = new MarkovDatabaseBuilder(id, path)
-			.depth(2)
-			.shardCacheSize(800)
 			.saveType(SaveType.SERIALIZE)
 			.executorService(exec)
 			.fixedCleanupThreshold(0)

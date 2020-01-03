@@ -43,9 +43,11 @@ class ShardCache {
 		this.shardLoader = new ShardLoader(this.id, path, this.saveType);
 		this.cleanupThreshold = cleanupThreshold;
 		this.fixedCleanup = this.cleanupThreshold > 0;
-		this.cache = Caffeine.newBuilder()
-				.maximumSize(this.capacity)
-				.executor(executorService == null ? Runnable::run : executorService)
+		Caffeine<Object, Object> builder = Caffeine.newBuilder();
+		if(this.capacity >= 0) {
+			builder = builder.maximumSize(this.capacity);
+		}
+		this.cache = builder.executor(executorService == null ? Runnable::run : executorService)
 				.writer(new CacheWriter<String, DatabaseShard>() {
 					@Override
 					public void write(@NonNull String key, @NonNull DatabaseShard value) {

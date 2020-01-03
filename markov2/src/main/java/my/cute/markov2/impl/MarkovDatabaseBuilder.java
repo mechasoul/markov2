@@ -23,8 +23,10 @@ public final class MarkovDatabaseBuilder {
 	 * cache will temporarily go over this number until it calls cleanUp()
 	 * setting a low fixedCleanupThreshold will reduce this, but requires more
 	 * frequent saves/loads (slower)
+	 * a size of 0 will cause cleanUp() to be called after every operation
+	 * a negative size (default) will impose no size restriction on cache
 	 */
-	private int shardCacheSize = 100;
+	private int shardCacheSize = -1;
 	/*
 	 * method of serialization. TODO remove this and just use serialize, its quicker than json
 	 */
