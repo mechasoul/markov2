@@ -51,29 +51,44 @@ class DatabaseShard {
 	
 	protected final String parentDatabaseId;
 	/*
-	 * prefix for this db shard
-	 * prefixes represent all possible word prefixes of length equal to the database's depth
-	 * eg for depth 1 A, B, C, ..., Z
-	 * depth 2 AA, AB, ..., AZ, BA, BB, BC, ..., ZY, ZZ
-	 * prefix length always matches depth exactly. words with less letters than prefix length
-	 * go in the earliest shard matching the word, filling remainder with A's (eg the word "a" 
-	 * in a db of depth 2 would go in shard AA, the word "by" in a db of depth 3 would go in 
-	 * shard BYA)
+	 * key for this db shard
+	 * keys are special strings that represent the bigrams used in that part of the database
+	 * keys and databaseshards are 1-to-1; every bigram that maps to a given key has its 
+	 * corresponding data (ie, followingwordset) held in the shard that corresponds to that key
+	 * key chars are ascii letters, 0 for numbers, ! for punctuation, @ for other, and ~
+	 * used to represent the space between word1 and word2 in the bigram
+	 * each word has up to MarkovDatabaseImpl.MAX_CHARS_PER_KEY_WORD chars representing it in
+	 * the key, so max key length is 2 * MAX_CHARS_PER_KEY_WORD + 1
+	 * examples: bigram (im, gay) has key "IM~GAY"
+	 * bigram (999, things.) has key "000~THINGS!"
+	 * bigram (abcdefghijklmnopqrstuvwxyz, hellohowareyoutoday) has key "ABCDEFGHIJ~HELLOHOWAR"
+	 * (with MAX_CHARS_PER_KEY_WORD = 10)
 	 */
-	protected String prefix;
+	protected String key;
+	/*
+	 * the path to the file on disk that holds this shard's data
+	 * to avoid dumping all our shard files in a single directory, paths are split by each 
+	 * character in the shard's key. files use a .database suffix
+	 * eg shard with key "IM~CUTE" has path:
+	 * \<parent database id>\<database dir string>\I\M\~\C\U\T\E\IM~CUTE.database
+	 * (where <database dir string> is MarkovDatabaseImpl.DATABASE_DIRECTORY_NAME)
+	 */
 	protected Path path;
 	/*
-	 * database maps bigram to a followingwordset representing the words following that bigram
+	 * holds the actual data for this shard
+	 * database maps bigram->followingwordset representing the words following that bigram
 	 * starts as a light arraylist-based implementation and switches to a hashmap-based one
 	 * once the followingwordset reaches a certain size
 	 * goal is to minimize memory use as much as possible, sacrificing speed if necessary (to a point...)
+	 * most shards will hold a single bigram. could potentially make this lighter by eliminating the dbwrapper
+	 * structure if it only contains a single bigram->fws?
 	 */
 	protected DatabaseWrapper database;
 	
-	DatabaseShard(String id, String p, String parentPath, int depth) {
-		this.parentDatabaseId = id;
-		this.prefix = p;
-		String pathString = this.determinePath(parentPath, depth);
+	DatabaseShard(String parentId, String key, String parentPath) {
+		this.parentDatabaseId = parentId;
+		this.key = key;
+		String pathString = this.determinePath(parentPath);
 		try {
 			FileUtils.forceMkdirParent(new File(pathString));
 		} catch (IOException e) {
@@ -81,11 +96,7 @@ class DatabaseShard {
 			e.printStackTrace();
 		}
 		this.path = Paths.get(pathString);
-		this.database = new DatabaseWrapper(this.prefix, this.parentDatabaseId);
-	}
-	
-	DatabaseShard(String id, String p, String parentPath) {
-		this(id, p, parentPath, 0);
+		this.database = new DatabaseWrapper(this.key, this.parentDatabaseId);
 	}
 	
 	/*
@@ -242,47 +253,52 @@ class DatabaseShard {
 	}
 	
 	void saveAsObject() throws IOException {
-		FileOutputStream fileOutputStream = new FileOutputStream(this.path.toString());
-		FSTObjectOutput out = CONF.getObjectOutput(fileOutputStream);
-		out.writeObject(this.database, DatabaseWrapper.class);
-		out.flush();
-		fileOutputStream.close();
+		try (FileOutputStream fileOutputStream = new FileOutputStream(this.path.toString())) {
+			FSTObjectOutput out = CONF.getObjectOutput(fileOutputStream);
+			out.writeObject(this.database, DatabaseWrapper.class);
+			out.flush();
+		}
 	}
 
-	void loadFromObject() throws Exception {
-		FileInputStream fileInputStream = new FileInputStream(this.path.toString());
-		FSTObjectInput in = CONF.getObjectInput(fileInputStream);
-		this.database = (DatabaseWrapper) in.readObject(DatabaseWrapper.class);
-		fileInputStream.close();
+	void loadFromObject() throws IOException {
+		try (FileInputStream fileInputStream = new FileInputStream(this.path.toString())) {
+			FSTObjectInput in = CONF.getObjectInput(fileInputStream);
+			try {
+				this.database = (DatabaseWrapper) in.readObject(DatabaseWrapper.class);
+			} catch (Exception e) {
+				throw new IOException(e);
+			}
+		}
 	}
 	
 	/*
 	 * obtain the path for the file representing this shard on the local disk
-	 * paths are separated by letter according to depth
-	 * eg a database with depth 1 has shards representing each letter of the alphabet
-	 * and their corresponding prefixes would be A, B, C, ..., Z
-	 * depth 2 would be AA, AB, ..., AZ, BA, BB, ..., ZY, ZZ
-	 * the local file path for each shard would be ../A/A/AA.database, ../A/B/AB.database,
-	 * ..., ../B/A/BA.database, ..., ../Z/Z/ZZ.database
-	 * words that don't have as many letters as the prefix go in the first db starting with
-	 * as many letters as the word has, remaining letters filled with A
-	 * eg the word "a" in a db of depth 2 would reside in AA.database
-	 * additionally there's one shard for numbers (prefix 0), one for punctuation (as 
-	 * specified by matching against regex \\p{Punct}, prefix !), and one for other (prefix
-	 * @)
+	 * paths are determined by the shard's key, and are separated into a new 
+	 * directory for each character in the key
+	 * eg shard with key "IM~CUTE" has path:
+	 * \<parent database id>\<database dir string>\I\M\~\C\U\T\E\IM~CUTE.database
+	 * (where <database dir string> is MarkovDatabaseImpl.DATABASE_DIRECTORY_NAME)
+	 * note that all possible characters in a key are regular uppercase ascii english
+	 * alphabet characters (A-Z) to represent that letter, 0 to represent regular ascii
+	 * numbers (0-9), ! to represent punctuation (as determined by matching against 
+	 * regex \\p{Punct}), and @ to represent all other characters
+	 * 
+	 * returns the string representing the path for this shard
+	 * param parentPath should be the part of the path that isn't based on key
+	 * (ie, the \<parent database id>\<database dir string> part)
 	 */
-	private String determinePath(String parentPath, int depth) {
-		//special shard path for zero depth database
-		if(depth == 0) return parentPath + File.separator + this.prefix + ".database";
+	private String determinePath(String parentPath) {
 		StringBuilder sb = new StringBuilder(parentPath);
 		sb.append(File.separator);
-		int index = 0;
-		while(index < depth) {
-			sb.append(this.prefix.charAt(index));
-			sb.append(File.separator);
-			index++;
+		if(this.key != MarkovDatabaseImpl.START_KEY) {
+			int index = 0;
+			while(index < this.key.length()) {
+				sb.append(this.key.charAt(index));
+				sb.append(File.separator);
+				index++;
+			}
 		}
-		sb.append(this.prefix);
+		sb.append(this.key);
 		sb.append(".database");
 		return sb.toString();
 	}
@@ -292,8 +308,8 @@ class DatabaseShard {
 		StringBuilder builder = new StringBuilder();
 		builder.append("DatabaseShard [parentDatabaseId=");
 		builder.append(parentDatabaseId);
-		builder.append(", prefix=");
-		builder.append(prefix);
+		builder.append(", key=");
+		builder.append(key);
 		builder.append("]");
 		return builder.toString();
 	}
@@ -302,8 +318,8 @@ class DatabaseShard {
 		StringBuilder builder = new StringBuilder();
 		builder.append("DatabaseShard [parentDatabaseId=");
 		builder.append(parentDatabaseId);
-		builder.append(", prefix=");
-		builder.append(prefix);
+		builder.append(", key=");
+		builder.append(key);
 		builder.append(", words=");
 		builder.append(this.database);
 		builder.append("]");
@@ -331,6 +347,7 @@ class DatabaseShard {
 		return sb.toString();
 	}
 	
+	//TODO change this to use streams
 	void writeDatabaseStringToFile(String filePath) throws IOException {
 		Path path = Paths.get(filePath);
 		StringBuilder sb = new StringBuilder();
@@ -354,10 +371,4 @@ class DatabaseShard {
 			}
 		}
 	}
-
-	String getPrefix() {
-		return prefix;
-	}
-
-	
 }

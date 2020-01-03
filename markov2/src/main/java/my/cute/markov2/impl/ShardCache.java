@@ -25,7 +25,7 @@ class ShardCache {
 	private static final Logger logger = LoggerFactory.getLogger(ShardCache.class);
 	
 	private final String id;
-	private LoadingCache<String, DatabaseShard> cache;
+	private final LoadingCache<String, DatabaseShard> cache;
 	private final int capacity;
 	private final SaveType saveType;
 	private final ShardLoader shardLoader;
@@ -36,11 +36,11 @@ class ShardCache {
 	
 	private int cleanCount = 0;
 	
-	ShardCache(String i, int c, int depth, String path, SaveType save, Executor executorService, int cleanupThreshold) {
+	ShardCache(String i, int c, String path, SaveType save, Executor executorService, int cleanupThreshold) {
 		this.id = i;
 		this.capacity = c;
 		this.saveType = save;
-		this.shardLoader = new ShardLoader(this.id, path, depth, this.saveType);
+		this.shardLoader = new ShardLoader(this.id, path, this.saveType);
 		this.cleanupThreshold = cleanupThreshold;
 		this.fixedCleanup = this.cleanupThreshold > 0;
 		this.cache = Caffeine.newBuilder()
@@ -63,17 +63,15 @@ class ShardCache {
 				})
 				//CacheLoader rule
 				//i seriously think method reference notation is way less readable?
-				.build(prefix -> this.createDatabaseShard(prefix));
+				.build(key -> this.createDatabaseShard(key));
 		this.startShard = this.shardLoader.createStartShard();
-//		(prefix, executor) -> 
-//		CompletableFuture.supplyAsync(() -> this.shardLoader.createAndLoadShard(prefix), executor)
 	}
 	
 	
 	
-	DatabaseShard get(String prefix) {
-		if(prefix.equals(MarkovDatabaseImpl.START_PREFIX)) return this.startShard;
-		return this.cache.get(prefix);
+	DatabaseShard get(String key) {
+		if(key.equals(MarkovDatabaseImpl.START_KEY)) return this.startShard;
+		return this.cache.get(key);
 	}
 	
 	/*
@@ -86,16 +84,16 @@ class ShardCache {
 	 */
 	void addFollowingWord(String key, Bigram bigram, String followingWord) {
 		//note the use of == here so this will break if strings aren't intern'd
-		if(key == MarkovDatabaseImpl.START_PREFIX) {
+		if(key == MarkovDatabaseImpl.START_KEY) {
 			//start shard always being loaded means concurrency problems w/
 			//reloading shards are avoided so we can just call method directly
 			this.startShard.addFollowingWord(bigram, followingWord);
 		} else {
 			//compute is always atomic
-			this.cache.asMap().compute(key, (prefix, shard) ->
+			this.cache.asMap().compute(key, (shardKey, shard) ->
 			{
 				//i dont like that i'm duplicating the cacheloader rule here
-				if(shard == null) shard = createDatabaseShard(prefix);
+				if(shard == null) shard = createDatabaseShard(shardKey);
 				shard.addFollowingWord(bigram, followingWord);
 				return shard;
 			});
@@ -106,11 +104,11 @@ class ShardCache {
 	
 	/*
 	 * throws FollowingWordRemovalException if the given followingWord wasn't successfully 
-	 * removed from the fws for the given bigram in the shard with the given key prefix
+	 * removed from the fws for the given bigram in the shard with the given key
 	 * (exception propagated from DatabaseShard.removeFollowingWord(Bigram, String))
 	 */
 	void removeFollowingWord(String key, Bigram bigram, String followingWord) throws FollowingWordRemovalException {
-		if(key == MarkovDatabaseImpl.START_PREFIX) {
+		if(key == MarkovDatabaseImpl.START_KEY) {
 			this.startShard.removeFollowingWord(bigram, followingWord);
 		} else {
 			try {
@@ -119,9 +117,9 @@ class ShardCache {
 				 * necessitates this awkward try-catch bs to get the thrown exception 
 				 * out from the lambda so it can be thrown from this method 
 				 */
-				this.cache.asMap().compute(key, (prefix, shard) ->
+				this.cache.asMap().compute(key, (shardKey, shard) ->
 				{
-					if(shard == null) shard = createDatabaseShard(prefix);
+					if(shard == null) shard = createDatabaseShard(shardKey);
 					try {
 						shard.removeFollowingWord(bigram, followingWord);
 					} catch (FollowingWordRemovalException e) {
@@ -139,35 +137,37 @@ class ShardCache {
 		this.checkFixedCleanup();
 	}
 	
-	/*
-	 * jank as hell
-	 */
-	boolean contains(String key, Bigram bigram, String followingWord, int count) {
-		if(key == MarkovDatabaseImpl.START_PREFIX) {
-			return this.startShard.contains(bigram, followingWord, count);
-		} else {
-			try {
-				this.cache.asMap().compute(key, (prefix, shard) ->
-				{
-					if(shard == null) shard = createDatabaseShard(prefix);
-					if(!shard.contains(bigram, followingWord, count)) {
-						throw new UncheckedFollowingWordRemovalException();
-					}
-					return shard;
-				});
-			} catch (UncheckedFollowingWordRemovalException ex) {
-				return false;
-			}
-			return true;
-		}
-	}
+//	/*
+//	 * jank as hell
+//	 * currently unused because no concurrency problems occur from calling contains() so 
+//	 * we can just call it on the shard directly from MarkovDatabaseImpl.contains()
+//	 */
+//	boolean contains(String key, Bigram bigram, String followingWord, int count) {
+//		if(key == MarkovDatabaseImpl.START_KEY) {
+//			return this.startShard.contains(bigram, followingWord, count);
+//		} else {
+//			try {
+//				this.cache.asMap().compute(key, (prefix, shard) ->
+//				{
+//					if(shard == null) shard = createDatabaseShard(prefix);
+//					if(!shard.contains(bigram, followingWord, count)) {
+//						throw new UncheckedFollowingWordRemovalException();
+//					}
+//					return shard;
+//				});
+//			} catch (UncheckedFollowingWordRemovalException ex) {
+//				return false;
+//			}
+//			return true;
+//		}
+//	}
 	
 	StartDatabaseShard getStartShard() {
 		return this.startShard;
 	}
 	
-	private DatabaseShard createDatabaseShard(String prefix) {
-		return this.shardLoader.createAndLoadShard(prefix);
+	private DatabaseShard createDatabaseShard(String key) {
+		return this.shardLoader.createAndLoadShard(key);
 	}
 	
 	void save() {
@@ -180,25 +180,8 @@ class ShardCache {
 		}
 	}
 	
-	String getDatabaseString(File file) {
-		return this.shardLoader.getShardFromFile(file).getDatabaseString();
-	}
-	
 	public void writeDatabaseShardString(File file, String path) throws IOException {
 		this.shardLoader.getShardFromFile(file).writeDatabaseStringToFile(path);
-	}
-	
-	@SuppressWarnings("unused")
-	int getSize() {
-		int count=0;
-		for(Entry<String, DatabaseShard> entry : this.cache.asMap().entrySet()) {
-			count++;
-		}
-		return count;
-	}
-	
-	DatabaseShard getShardFromFile(File file) {
-		return this.shardLoader.getShardFromFile(file);
 	}
 	
 	private void checkFixedCleanup() {

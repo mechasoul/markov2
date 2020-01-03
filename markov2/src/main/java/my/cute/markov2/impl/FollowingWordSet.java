@@ -43,6 +43,7 @@ interface FollowingWordSet {
 		 * important note: NOT using specific serializers for each fws type here, 
 		 * because doing so means that we use the same serializer to read back from
 		 * disk and consequently have to build the fws entirely from read data that was on disk
+		 * (because of how the instantiate/readobject stuff works in fst)
 		 * current implementation needs a reference to the bigram the fws is connected to 
 		 * (eg for hashcode), and the readObject()/instantiate() methods are limited
 		 * in what data can be passed to them, so we need to construct fws from elsewhere
@@ -52,9 +53,11 @@ interface FollowingWordSet {
 		 * bigram passed in (see DatabaseWrapper.Serializer.instantiate())
 		 * 
 		 * some implementation stuff that im not happy with is necessary as a result (eg getType(), 
-		 * writeToOutput() in fws interface), and i guess these could be avoided by eg testing 
-		 * instanceof in writeObject() and casting to the correct result, but i think thats even
-		 * uglier than this current solution. maybe theres a better way but for now this is fine
+		 * writeToOutput() in fws interface), and i guess these could be avoided by eg putting them
+		 * in implementation classes and not interface and then testing instanceof in writeObject() 
+		 * and casting to the result to get access to those implementation-specific methods but i 
+		 * think thats even uglier than this current solution. maybe theres a better way but for now
+		 * this is fine
 		 */
 		@Override
 		public void writeObject(FSTObjectOutput out, Object toWrite, FSTClazzInfo clzInfo, FSTFieldInfo referencedBy,
@@ -143,6 +146,7 @@ interface FollowingWordSet {
 	
 	/*
 	 * returns a minimal String representation of the set's contents
+	 * should this just be tostring()?
 	 */
 	public String toStringPlain();
 }

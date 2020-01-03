@@ -25,8 +25,8 @@ class StartDatabaseShard extends DatabaseShard {
 	
 	private int totalCount;
 	
-	StartDatabaseShard(String id, String p, String parentPath) {
-		super(id, p, parentPath);
+	StartDatabaseShard(String id, String key, String parentPath) {
+		super(id, key, parentPath);
 		this.totalCount = 0;
 	}
 	
@@ -80,21 +80,25 @@ class StartDatabaseShard extends DatabaseShard {
 	
 	@Override
 	void saveAsObject() throws IOException {
-		FileOutputStream fileOutputStream = new FileOutputStream(this.path.toString());
-		FSTObjectOutput out = CONF.getObjectOutput(fileOutputStream);
-		out.writeObject(this.database, DatabaseWrapper.class);
-		out.writeInt(this.totalCount);
-		out.flush();
-		fileOutputStream.close();
+		try (FileOutputStream fileOutputStream = new FileOutputStream(this.path.toString())) {
+			FSTObjectOutput out = CONF.getObjectOutput(fileOutputStream);
+			out.writeObject(this.database, DatabaseWrapper.class);
+			out.writeInt(this.totalCount);
+			out.flush();
+		}
 	}
 	
 	@Override
-	void loadFromObject() throws Exception {
-		FileInputStream fileInputStream = new FileInputStream(this.path.toString());
-		FSTObjectInput in = CONF.getObjectInput(fileInputStream);
-		this.database = (DatabaseWrapper) in.readObject(DatabaseWrapper.class);
-		this.totalCount = in.readInt();
-		fileInputStream.close();
+	void loadFromObject() throws IOException {
+		try (FileInputStream fileInputStream = new FileInputStream(this.path.toString())) {
+			FSTObjectInput in = CONF.getObjectInput(fileInputStream);
+			try {
+				this.database = (DatabaseWrapper) in.readObject(DatabaseWrapper.class);
+			} catch (Exception ex) {
+				throw new IOException(ex);
+			}
+			this.totalCount = in.readInt();
+		}
 	}
 
 	@Override
@@ -104,8 +108,8 @@ class StartDatabaseShard extends DatabaseShard {
 		builder.append(totalCount);
 		builder.append(", parentDatabaseId=");
 		builder.append(parentDatabaseId);
-		builder.append(", prefix=");
-		builder.append(prefix);
+		builder.append(", key=");
+		builder.append(key);
 		builder.append("]");
 		return builder.toString();
 	}

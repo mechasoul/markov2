@@ -46,9 +46,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	static final String TOTAL_TOKEN = MyStringPool.INSTANCE.intern("<_total>");
 	static final String END_TOKEN = MyStringPool.INSTANCE.intern("<_end>");
 	private static final Map<String, String> tokenReplacements;
-	static final String ZERO_DEPTH_PREFIX = "~full_database";
-	static final String START_PREFIX = "~start";
+	static final String START_KEY = "~start";
 	static final int MAX_WORDS_PER_LINE = 256;
+	static final int MAX_CHARS_PER_KEY_WORD = 10;
 	private static final String DATABASE_DIRECTORY_NAME = "~database";
 	private static final String BACKUP_DIRECTORY_NAME = "~backups";
 	
@@ -60,20 +60,39 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private final String id;
-	private int depth;
 	private final String path;
 	private final ShardCache shardCache;
 	
 	MarkovDatabaseImpl(MarkovDatabaseBuilder builder) {
 		this.id = builder.getId();
 		this.path = builder.getParentPath() + File.separator + this.id;
-		this.depth = builder.getDepth();
-		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), builder.getDepth(), this.path 
+		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), this.path 
 				+ File.separator + DATABASE_DIRECTORY_NAME, builder.getSaveType(),
 				builder.getExecutorService(), builder.getFixedCleanupThreshold());
 		new File(this.path + File.separator + BACKUP_DIRECTORY_NAME).mkdirs();
 	}
 	
+	/*
+	 * TODO
+	 * 
+	 * - merge tiny fws intern branch (i think this was fully tested?)
+	 * - change prefix/depth system, so that most shards encompass a single bigram+fws 
+	 * build prefix as we currently do, but stop after A) some number of characters (10?)
+	 * or B) end of bigram.word1 is reached. use a special ~ character for second word indicator
+	 * then continue building prefix off of bigram.word2 in same fashion. when word2 ends,
+	 * have some string (prefix) and use that as filename
+	 * eg for bigram "im gay", file structure would be
+	 * \<database id>\~database\I\M\~\G\A\Y\IM~GAY.database
+	 * by mapping punctuation and special characters as we currently do we avoid any problems
+	 * this further fragments the database which should let us more precisely load/save only 
+	 * the necessary data
+	 * each .database file can hold a DatabaseWrapper as it currently does and it'd just have a
+	 * single bigram+fws pair for most shards, some shards would have more but probably not by
+	 * much. we could potentially leverage interface and use large+small database objects like 
+	 * we currently do with fws; shards that hold a single bigram+fws could forego some of the
+	 * object wrapping and save some amount of bytes. maybe not worth the effort? depends on how
+	 * much memory we end up saving by doing this
+	 */
 	@Override
 	public void processLine(List<String> words) {
 		if(words.size() == 0) {
@@ -95,57 +114,74 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private void addFollowingWordForBigram(Bigram bigram, String followingWord) {
-		this.shardCache.addFollowingWord(this.getPrefix(bigram.getWord1()), bigram, followingWord);
+		this.shardCache.addFollowingWord(this.getKey(bigram), bigram, followingWord);
 	}
 	
 	private DatabaseShard getShard(Bigram bigram) {
-		String prefix = this.getPrefix(bigram.getWord1());
-		return this.shardCache.get(prefix);
+		String key = this.getKey(bigram);
+		return this.shardCache.get(key);
 	}
 	
 	
 	/*
-	 * accepts a nonempty nonwhitespace word and returns the appropriate prefix for
-	 * the database
-	 * prefix will vary depending on db depth (eg apple has prefix A in depth 1, AP
-	 * in depth 2)
-	 * prefix chars are ascii letters, 0 for numbers, ! for punctuation, @ for other
-	 * standard prefixes always have same length as depth, filling in missing characters
-	 * with A (eg "i" in depth 2 has prefix IA
+	 * accepts a bigram and returns the appropriate key for the database
+	 * keys are special strings that represent the bigram used for that part of the database
+	 * multiple bigrams can map to the same key, but generally won't
+	 * key chars are ascii letters, 0 for numbers, ! for punctuation, @ for other, and ~
+	 * used to represent the space between word1 and word2
+	 * each word has up to MAX_CHARS_PER_KEY_WORD chars representing it in the key, so max key
+	 * length is 2 * MAX_CHARS_PER_KEY_WORD + 1
+	 * eg bigram (im, gay) has key "IM~GAY"
+	 * bigram (999, things.) has key "000~THINGS!"
+	 * bigram (abcdefghijklmnopqrstuvwxyz, hellohowareyoutoday) has key "ABCDEFGHIJ~HELLOHOWAR"
 	 */
-	private String getPrefix(String word) {
-		//special cases for start token and 0 depth database
-		if(word.equals(START_TOKEN)) return START_PREFIX;
-		if(this.depth == 0) return ZERO_DEPTH_PREFIX;
+	private String getKey(Bigram bigram) {
+		//special case for start token
+		if(bigram.getWord1().equals(START_TOKEN)) return START_KEY;
 		
-		StringBuilder prefix = new StringBuilder();
+		StringBuilder key = new StringBuilder();
 		int index = 0;
 		
-		//loop should happen at least once; depth > 0 by above check and word should be nonempty
-		while(index < this.depth && index < word.length()) {
+		//loop should happen at least once; word should be nonempty
+		String word = bigram.getWord1();
+		while(index < MAX_CHARS_PER_KEY_WORD && index < word.length()) {
 			char ch = word.charAt(index);
 			if (ch >= '0' && ch <= '9') {
-				prefix.append("0");
+				key.append("0");
 			}
 			//strictly use ascii letters
 			else if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) {
-				prefix.append(Character.toUpperCase(ch));
+				key.append(Character.toUpperCase(ch));
 			}
 			else if (PUNCTUATION.matcher(String.valueOf(ch)).matches()) {
-				prefix.append("!");
+				key.append("!");
 			} else {
-				prefix.append("@");
+				key.append("@");
 			}
 			index++;
 		}
-		//fill in remainder up to depth
-		while(index < depth) {
-			prefix.append("A");
+		key.append("~");
+		//now do second word
+		word = bigram.getWord2();
+		while(index < MAX_CHARS_PER_KEY_WORD && index < word.length()) {
+			char ch = word.charAt(index);
+			if (ch >= '0' && ch <= '9') {
+				key.append("0");
+			}
+			//strictly use ascii letters
+			else if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) {
+				key.append(Character.toUpperCase(ch));
+			}
+			else if (PUNCTUATION.matcher(String.valueOf(ch)).matches()) {
+				key.append("!");
+			} else {
+				key.append("@");
+			}
 			index++;
 		}
 		
-		//StringBuilder should be nonempty since above loop happened at least once
-		return MyStringPool.INSTANCE.intern(prefix.toString());
+		//StringBuilder should be nonempty since above loops happened at least once
+		return MyStringPool.INSTANCE.intern(key.toString());
 	}
 	
 	private StartDatabaseShard getStartShard() {
@@ -230,9 +266,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		});
 	}
 	
-	private boolean contains(Bigram bigram, String followingWord, int count) {
-		return this.shardCache.contains(this.getPrefix(bigram.getWord1()), bigram, followingWord, count);
-	}
+//	private boolean contains(Bigram bigram, String followingWord, int count) {
+//		return this.shardCache.contains(this.getKey(bigram), bigram, followingWord, count);
+//	}
 	
 	@Override
 	public boolean removeLine(List<String> words) throws FollowingWordRemovalException {
@@ -259,7 +295,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private void removeFollowingWordForBigram(Bigram bigram, String followingWord) throws FollowingWordRemovalException {
-		this.shardCache.removeFollowingWord(this.getPrefix(bigram.getWord1()), bigram, followingWord);
+		this.shardCache.removeFollowingWord(this.getKey(bigram), bigram, followingWord);
 	}
 
 	@Override

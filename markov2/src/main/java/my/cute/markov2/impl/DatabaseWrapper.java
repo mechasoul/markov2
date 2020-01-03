@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,7 +41,7 @@ class DatabaseWrapper implements Serializable {
 			
 			DatabaseWrapper db = (DatabaseWrapper) toWrite;
 			out.writeInt(db.size());
-			out.writeUTF(db.getPrefix());
+			out.writeUTF(db.getKey());
 			out.writeUTF(db.getId());
 			for(Map.Entry<Bigram, FollowingWordSet> next : db.entrySet()) {
 				out.writeObject(next.getKey(), Bigram.class);
@@ -60,9 +59,9 @@ class DatabaseWrapper implements Serializable {
 		{
 			
 			int dbSize = in.readInt();
-			String prefix = MyStringPool.INSTANCE.intern(in.readUTF());
+			String key = MyStringPool.INSTANCE.intern(in.readUTF());
 			String id = MyStringPool.INSTANCE.intern(in.readUTF());
-			ConcurrentMap<Bigram, FollowingWordSet> db = new ConcurrentHashMap<Bigram, FollowingWordSet>(dbSize * 4 / 3);
+			ConcurrentMap<Bigram, FollowingWordSet> db = new ConcurrentHashMap<Bigram, FollowingWordSet>(dbSize * 4 / 3, 0.8f);
 			for(int i=0; i < dbSize; i++) {
 				Bigram bigram = (Bigram) in.readObject(Bigram.class);
 				
@@ -90,7 +89,7 @@ class DatabaseWrapper implements Serializable {
 				}
 				db.put(bigram, fws);
 			}
-			DatabaseWrapper object = new DatabaseWrapper(db, prefix, id);
+			DatabaseWrapper object = new DatabaseWrapper(db, key, id);
 			in.registerObject(object, streamPosition, serializationInfo, referencee);
 			return object;
 		}
@@ -113,7 +112,7 @@ class DatabaseWrapper implements Serializable {
 	 * & we'll have to merge guava interning + fst serializing into master too
 	 */
 	
-	private final String prefix;
+	private final String key;
 	private final String parentDatabaseId;
 	private final ConcurrentMap<Bigram, FollowingWordSet> database;
 	
@@ -124,28 +123,24 @@ class DatabaseWrapper implements Serializable {
 //		this.parentDatabaseId = null;
 //	}
 	
-	DatabaseWrapper(String prefix, String id) {
-		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(3);
-		this.prefix = prefix;
+	DatabaseWrapper(String key, String id) {
+		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(1);
+		this.key = key;
 		this.parentDatabaseId = id;
 	}
 	
-	DatabaseWrapper(ConcurrentMap<Bigram, FollowingWordSet> map, String prefix, String id) {
+	DatabaseWrapper(ConcurrentMap<Bigram, FollowingWordSet> map, String key, String id) {
 		this.database = map;
-		this.prefix = prefix;
+		this.key = key;
 		this.parentDatabaseId = id;
 	}
 
-	public FollowingWordSet get(Bigram key) {
-		return this.database.get(key);
+	public FollowingWordSet get(Bigram bigram) {
+		return this.database.get(bigram);
 	}
-
-	public Iterator<Map.Entry<Bigram, FollowingWordSet>> iterator() {
-		return this.database.entrySet().iterator();
-	}
-
-	public FollowingWordSet put(Bigram key, FollowingWordSet value) {
-		return this.database.put(key, value);
+	
+	public FollowingWordSet put(Bigram bigram, FollowingWordSet words) {
+		return this.database.put(bigram, words);
 	}
 
 	public int size() {
@@ -164,8 +159,8 @@ class DatabaseWrapper implements Serializable {
 		return this.database.remove(bigram) != null;
 	}
 
-	public String getPrefix() {
-		return this.prefix;
+	public String getKey() {
+		return this.key;
 	}
 
 	public String getId() {
@@ -184,7 +179,7 @@ class DatabaseWrapper implements Serializable {
 		final int prime = 31;
 		int result = 1;
 		result = prime * result + ((parentDatabaseId == null) ? 0 : parentDatabaseId.hashCode());
-		result = prime * result + ((prefix == null) ? 0 : prefix.hashCode());
+		result = prime * result + ((key == null) ? 0 : key.hashCode());
 		return result;
 	}
 
@@ -200,10 +195,10 @@ class DatabaseWrapper implements Serializable {
 				return false;
 		} else if (!parentDatabaseId.equals(other.parentDatabaseId))
 			return false;
-		if (prefix == null) {
-			if (other.prefix != null)
+		if (key == null) {
+			if (other.key != null)
 				return false;
-		} else if (!prefix.equals(other.prefix))
+		} else if (!key.equals(other.key))
 			return false;
 		return true;
 	}
@@ -211,8 +206,8 @@ class DatabaseWrapper implements Serializable {
 	@Override
 	public String toString() {
 		StringBuilder builder = new StringBuilder();
-		builder.append("DatabaseWrapper [prefix=");
-		builder.append(prefix);
+		builder.append("DatabaseWrapper [key=");
+		builder.append(key);
 		builder.append(", parentDatabaseId=");
 		builder.append(parentDatabaseId);
 		builder.append("]");

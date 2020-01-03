@@ -12,39 +12,6 @@ import org.nustaq.serialization.annotations.Flat;
 
 @Flat
 class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<String> {
-
-//	static class Serializer extends FSTBasicObjectSerializer {
-//
-//		@Override
-//		public void writeObject(FSTObjectOutput out, Object toWrite, FSTClazzInfo clzInfo, FSTFieldInfo referencedBy,
-//				int streamPosition) throws IOException {
-//			
-//			SmallFollowingWordSet fws = (SmallFollowingWordSet) toWrite;
-//			out.writeInt(fws.size());
-//			synchronized(fws) {
-//				for(String word : fws) {
-//					out.writeUTF(word);
-//				}
-//			}
-//		}
-//		
-//		@Override
-//	    public void readObject(FSTObjectInput in, Object toRead, FSTClazzInfo clzInfo, FSTClazzInfo.FSTFieldInfo referencedBy)
-//	    {
-//	    }
-//		
-//		@Override
-//		public Object instantiate(@SuppressWarnings("rawtypes") Class objectClass, FSTObjectInput in, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee, int streamPosition) throws Exception 
-//		{
-//			int size = in.readInt();
-//			SmallFollowingWordSet obj = new SmallFollowingWordSet(size);
-//			for(int i=0; i < size; i++) {
-//				obj.addWord(MyStringPool.INSTANCE.intern(in.readUTF()));
-//			}
-//			in.registerObject(obj, streamPosition, serializationInfo, referencee);
-//			return obj;
-//		}
-//	}
 	
 	private static final long serialVersionUID = 1L;
 	private final List<String> words;
@@ -55,27 +22,19 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 	/*
 	 * the id for the server this fws (and its corresponding bigram) belong to
 	 */
-	private final String id;
+	private final String parentDatabaseId;
 	
-//	SmallFollowingWordSet() {
-//		this.words = Collections.synchronizedList(new ArrayList<String>(1));
-//	}
-//	
 	SmallFollowingWordSet(String firstWord, Bigram bigram, String id) {
 		this.words = Collections.synchronizedList(new ArrayList<String>(1));
 		this.addWord(firstWord);
 		this.bigram = bigram;
-		this.id = id;
+		this.parentDatabaseId = id;
 	}
-//	
-//	SmallFollowingWordSet(int size) {
-//		this.words = Collections.synchronizedList(new ArrayList<String>(size));
-//	}
 	
 	SmallFollowingWordSet(List<String> list, Bigram bigram, String id) {
 		this.words = list;
 		this.bigram = bigram;
-		this.id = id;
+		this.parentDatabaseId = id;
 	}
 	
 	@Override
@@ -132,7 +91,7 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 
 	@Override
 	public String getId() {
-		return this.id;
+		return this.parentDatabaseId;
 	}
 
 	/*
@@ -155,7 +114,7 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 		final int prime = 31;
 		int result = 1;
 		result = prime * result + ((bigram == null) ? 0 : bigram.hashCode());
-		result = prime * result + ((id == null) ? 0 : id.hashCode());
+		result = prime * result + ((parentDatabaseId == null) ? 0 : parentDatabaseId.hashCode());
 		return result;
 	}
 
@@ -171,10 +130,10 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 				return false;
 		} else if (!bigram.equals(other.bigram))
 			return false;
-		if (id == null) {
-			if (other.id != null)
+		if (parentDatabaseId == null) {
+			if (other.parentDatabaseId != null)
 				return false;
-		} else if (!id.equals(other.id))
+		} else if (!parentDatabaseId.equals(other.parentDatabaseId))
 			return false;
 		return true;
 	}

@@ -54,7 +54,7 @@ public interface MarkovDatabase {
 	 * already before doing anything, to avoid running into problems partway 
 	 * through and leaving db in inconsistent state
 	 * 
-	 * consequently this will probably be slower than processLine and should be
+	 * consequently this will be slower than processLine and should be
 	 * used sparingly. extra caution should also be given to multithreaded 
 	 * environments. probably best used in some kind of maintenance state where
 	 * the db can be locked for some time while lines are removed?
