@@ -3,7 +3,7 @@ package my.cute.markov2.impl;
 import com.google.common.collect.Interner;
 import com.google.common.collect.Interners;
 
-public enum MyStringPool implements Interner<String> {
+enum MyStringPool implements Interner<String> {
 	
 	INSTANCE;
 	

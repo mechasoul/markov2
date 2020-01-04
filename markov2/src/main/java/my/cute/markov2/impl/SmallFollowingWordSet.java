@@ -26,15 +26,24 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 	
 	SmallFollowingWordSet(String firstWord, Bigram bigram, String id) {
 		this.words = Collections.synchronizedList(new ArrayList<String>(1));
-		this.addWord(firstWord);
 		this.bigram = bigram;
 		this.parentDatabaseId = id;
+		this.addWord(firstWord);
+		
 	}
 	
 	SmallFollowingWordSet(List<String> list, Bigram bigram, String id) {
 		this.words = list;
 		this.bigram = bigram;
 		this.parentDatabaseId = id;
+	}
+	
+	SmallFollowingWordSet(FollowingWordSet set, String newWord, Bigram bigram, String id) {
+		this.words = Collections.synchronizedList(new ArrayList<String>(set.getWords()));
+		this.bigram = bigram;
+		this.parentDatabaseId = id;
+		this.addWord(newWord);
+		
 	}
 	
 	@Override
@@ -105,7 +114,8 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 	/*
 	 * for synchronizing on
 	 */
-	List<String> getRawWords() {
+	@Override
+	public List<String> getWords() {
 		return this.words;
 	}
 
