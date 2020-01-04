@@ -89,12 +89,6 @@ class DatabaseShard {
 		this.parentDatabaseId = parentId;
 		this.key = key;
 		String pathString = this.determinePath(parentPath);
-		try {
-			FileUtils.forceMkdirParent(new File(pathString));
-		} catch (IOException e) {
-			logger.error("IOException on creating parent directory for shard " + this.toString() + ": " + e.getLocalizedMessage());
-			e.printStackTrace();
-		}
 		this.path = Paths.get(pathString);
 		this.database = new DatabaseWrapper(this.key, this.parentDatabaseId);
 	}
@@ -253,14 +247,21 @@ class DatabaseShard {
 	}
 	
 	void saveAsObject() throws IOException {
-		try (FileOutputStream fileOutputStream = new FileOutputStream(this.path.toString())) {
-			FSTObjectOutput out = CONF.getObjectOutput(fileOutputStream);
-			out.writeObject(this.database, DatabaseWrapper.class);
-			out.flush();
+		FileOutputStream fileOutputStream = null;
+		try {
+			fileOutputStream = new FileOutputStream(this.path.toString());
+		} catch (FileNotFoundException ex) {
+			this.path.toFile().getParentFile().mkdirs();
+			fileOutputStream = new FileOutputStream(this.path.toString());
 		}
+		FSTObjectOutput out = CONF.getObjectOutput(fileOutputStream);
+		out.writeObject(this.database, DatabaseWrapper.class);
+		out.flush();
+		fileOutputStream.close();
 	}
 
 	void loadFromObject() throws IOException {
+		if(!this.path.toFile().exists()) return;
 		try (FileInputStream fileInputStream = new FileInputStream(this.path.toString())) {
 			FSTObjectInput in = CONF.getObjectInput(fileInputStream);
 			try {
@@ -292,8 +293,19 @@ class DatabaseShard {
 		sb.append(File.separator);
 		if(this.key != MarkovDatabaseImpl.START_KEY) {
 			int index = 0;
-			while(index < this.key.length()) {
-				sb.append(this.key.charAt(index));
+			String words[] = this.key.split("~");
+			String word = words[0];
+			while(index < word.length() && index < MarkovDatabaseImpl.DIRECTORIES_PER_KEY_WORD) {
+				sb.append(word.charAt(index));
+				sb.append(File.separator);
+				index++;
+			}
+			sb.append("~");
+			sb.append(File.separator);
+			index = 0;
+			word = words[1].split("\\.")[0];
+			while(index < word.length() && index < MarkovDatabaseImpl.DIRECTORIES_PER_KEY_WORD) {
+				sb.append(word.charAt(index));
 				sb.append(File.separator);
 				index++;
 			}

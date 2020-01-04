@@ -48,7 +48,8 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	private static final Map<String, String> tokenReplacements;
 	static final String START_KEY = "~start";
 	static final int MAX_WORDS_PER_LINE = 256;
-	static final int MAX_CHARS_PER_KEY_WORD = 10;
+	static final int DIRECTORIES_PER_KEY_WORD = 1;
+	static final int MAX_CHARS_PER_KEY_WORD = 1;
 	private static final String DATABASE_DIRECTORY_NAME = "~database";
 	private static final String BACKUP_DIRECTORY_NAME = "~backups";
 	
@@ -92,6 +93,12 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	 * we currently do with fws; shards that hold a single bigram+fws could forego some of the
 	 * object wrapping and save some amount of bytes. maybe not worth the effort? depends on how
 	 * much memory we end up saving by doing this
+	 * 
+	 * O K nvm this sucks its way too many files and folders and it takes prohibitively long to
+	 * seek that many different files
+	 * can maybe try tweaking the numbers a bit tho? maybe MAX_CHARS_PER_KEY_WORD = 1 performs well
+	 * or something. or we could have the directories and the words in the actual filename use 
+	 * different numbers of chars eg "im gay" -> \I\~\G\IM~GA.database with 1, 2
 	 */
 	@Override
 	public void processLine(List<String> words) {
@@ -162,6 +169,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		}
 		key.append("~");
 		//now do second word
+		index = 0;
 		word = bigram.getWord2();
 		while(index < MAX_CHARS_PER_KEY_WORD && index < word.length()) {
 			char ch = word.charAt(index);

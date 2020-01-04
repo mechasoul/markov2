@@ -54,7 +54,6 @@ public class Test {
 		MarkovDatabase db = new MarkovDatabaseBuilder(id, path)
 			.saveType(SaveType.SERIALIZE)
 			.executorService(exec)
-			.fixedCleanupThreshold(0)
 			.build();
 		db.load();
 		List<String> testLines = null;
@@ -64,7 +63,7 @@ public class Test {
 		try (Stream<String> lines = Files.lines(Paths.get(inPath), StandardCharsets.UTF_8)){
 			tempTime1 = System.currentTimeMillis();
 			lines
-//				.limit(100000)
+				.limit(100000)
 				.forEach(string -> 
 			{
 				if(StringUtils.isWhitespace(string)) return;

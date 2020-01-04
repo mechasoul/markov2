@@ -80,12 +80,18 @@ class StartDatabaseShard extends DatabaseShard {
 	
 	@Override
 	void saveAsObject() throws IOException {
-		try (FileOutputStream fileOutputStream = new FileOutputStream(this.path.toString())) {
-			FSTObjectOutput out = CONF.getObjectOutput(fileOutputStream);
-			out.writeObject(this.database, DatabaseWrapper.class);
-			out.writeInt(this.totalCount);
-			out.flush();
+		FileOutputStream fileOutputStream = null;
+		try {
+			fileOutputStream = new FileOutputStream(this.path.toString());
+		} catch (FileNotFoundException ex) {
+			this.path.toFile().getParentFile().mkdirs();
+			fileOutputStream = new FileOutputStream(this.path.toString());
 		}
+		FSTObjectOutput out = CONF.getObjectOutput(fileOutputStream);
+		out.writeObject(this.database, DatabaseWrapper.class);
+		out.writeInt(this.totalCount);
+		out.flush();
+		fileOutputStream.close();
 	}
 	
 	@Override
