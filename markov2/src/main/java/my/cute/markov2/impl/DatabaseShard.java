@@ -406,5 +406,6 @@ class DatabaseShard {
 				count = 0;
 			}
 		}
+		Files.write(path, sb.toString().getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
 	}
 }
