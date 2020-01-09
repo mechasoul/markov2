@@ -3,31 +3,29 @@ package markov2;
 import java.io.File;
 import java.util.concurrent.ForkJoinPool;
 
-import my.cute.markov.MarkovDatabase;
-import my.cute.markov.OutputHandler;
+import my.cute.markov2.MarkovDatabase;
 import my.cute.markov2.impl.MarkovDatabaseBuilder;
 import my.cute.markov2.impl.SaveType;
 
 public class LineTest {
 
 	public static void main(String[] args) {
-		String id = "shardtestmasterfull";
+		String id = "shardtest";
 		String path = "./test";
 		String inPath = "./testinput.txt";
 		File testFile = new File(inPath);
 		ForkJoinPool exec = ForkJoinPool.commonPool();
+		TestUtils.log("abc");
 		
-		
-//		MarkovDatabase db = new MarkovDatabaseBuilder(id, path)
-//			.depth(2)
-//			.shardCacheSize(0)
-//			.saveType(SaveType.JSON)
-//			.executorService(exec)
-//			.build();
-//		db.load();
+		MarkovDatabase db = new MarkovDatabaseBuilder(id, path)
+			.shardCacheSize(0)
+			.saveType(SaveType.SERIALIZE)
+			.executorService(exec)
+			.build();
+		db.load();
 
-		MarkovDatabase db = new MarkovDatabase("0", "oldtest", 10, 20, true);
-		OutputHandler output = new OutputHandler(db);
+//		MarkovDatabase db = new MarkovDatabase("0", "oldtest", 10, 20, true);
+//		OutputHandler output = new OutputHandler(db);
 		
 		final int NUM_LINES = 10000;
 		final int SEGMENT = 1000;
@@ -45,8 +43,8 @@ public class LineTest {
 				TestUtils.log(sb.toString());
 				time1 = time2;
 			}
-//			System.out.println(db.generateLine());
-			System.out.println(output.createMessage(false));
+			System.out.println(db.generateLine());
+//			System.out.println(output.createMessage(false));
 		}
 		TestUtils.log("total: " + TestUtils.getFormattedTime(System.currentTimeMillis() - startTime) 
 				+ ", avg: " + ((double)(System.currentTimeMillis() - startTime)/NUM_LINES));

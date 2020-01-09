@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory;
 
 class TestUtils {
 	
-	private static final Logger logger = LoggerFactory.getLogger(TestUtils.class);
+	private static final Logger logger = LoggerFactory.getLogger("TestLogger");
 	
 	static List<String> tokenize(String string) {
 		return Arrays.asList(StringUtils.split(string, null));
