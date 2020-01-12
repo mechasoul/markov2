@@ -1,17 +1,20 @@
 package my.cute.markov2.impl;
 
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.HashMap;
@@ -37,40 +40,47 @@ import gnu.trove.map.hash.TObjectIntHashMap;
 import my.cute.markov2.MarkovDatabase;
 import my.cute.markov2.exceptions.FollowingWordRemovalException;
 
+/*
+ * implementation of MarkovDatabase
+ * prioritizes memory over speed
+ */
 public class MarkovDatabaseImpl implements MarkovDatabase {
 	
 	private static final Logger logger = LoggerFactory.getLogger(MarkovDatabaseImpl.class);
 	
 	private static final Pattern PUNCTUATION = Pattern.compile("\\p{Punct}");
+	/*
+	 * special tokens used for start/end of line indicators
+	 * chosen to be strings unlikely to be used by a person
+	 * are stripped from lines during processing
+	 */
 	static final String START_TOKEN = MyStringPool.INSTANCE.intern("<_start>");
-	static final String TOTAL_TOKEN = MyStringPool.INSTANCE.intern("<_total>");
 	static final String END_TOKEN = MyStringPool.INSTANCE.intern("<_end>");
 	private static final Map<String, String> tokenReplacements;
-	static final String ZERO_DEPTH_PREFIX = "~full_database";
-	static final String START_PREFIX = "~start";
+	static final String START_KEY = "~start";
 	static final int MAX_WORDS_PER_LINE = 256;
+	static final int DIRECTORIES_PER_KEY_WORD = 1;
+	static final int MAX_CHARS_PER_KEY_WORD = 1;
 	private static final String DATABASE_DIRECTORY_NAME = "~database";
 	private static final String BACKUP_DIRECTORY_NAME = "~backups";
 	
 	static {
-		tokenReplacements = new HashMap<String, String>(4, 1f);
+		tokenReplacements = new HashMap<String, String>(3, 1f);
 		tokenReplacements.put(START_TOKEN, MyStringPool.INSTANCE.intern("start"));
-		tokenReplacements.put(TOTAL_TOKEN, MyStringPool.INSTANCE.intern("total"));
 		tokenReplacements.put(END_TOKEN, MyStringPool.INSTANCE.intern("end"));
 	}
 	
 	private final String id;
-	private int depth;
 	private final String path;
 	private final ShardCache shardCache;
 	
 	MarkovDatabaseImpl(MarkovDatabaseBuilder builder) {
 		this.id = builder.getId();
 		this.path = builder.getParentPath() + File.separator + this.id;
-		this.depth = builder.getDepth();
-		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), builder.getDepth(), this.path 
-				+ File.separator + DATABASE_DIRECTORY_NAME, builder.getSaveType(),
+		this.shardCache = new ShardCache(this.id, builder.getShardCacheSize(), this.path 
+				+ File.separator + DATABASE_DIRECTORY_NAME, SaveType.SERIALIZE,
 				builder.getExecutorService(), builder.getFixedCleanupThreshold());
+		//ensure necessary directories exist during db creation
 		new File(this.path + File.separator + BACKUP_DIRECTORY_NAME).mkdirs();
 	}
 	
@@ -95,57 +105,76 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private void addFollowingWordForBigram(Bigram bigram, String followingWord) {
-		this.shardCache.addFollowingWord(this.getPrefix(bigram.getWord1()), bigram, followingWord);
+		this.shardCache.addFollowingWord(this.getKey(bigram), bigram, followingWord);
 	}
 	
 	private DatabaseShard getShard(Bigram bigram) {
-		String prefix = this.getPrefix(bigram.getWord1());
-		return this.shardCache.get(prefix);
+		String key = this.getKey(bigram);
+		return this.shardCache.get(key);
 	}
 	
 	
 	/*
-	 * accepts a nonempty nonwhitespace word and returns the appropriate prefix for
-	 * the database
-	 * prefix will vary depending on db depth (eg apple has prefix A in depth 1, AP
-	 * in depth 2)
-	 * prefix chars are ascii letters, 0 for numbers, ! for punctuation, @ for other
-	 * standard prefixes always have same length as depth, filling in missing characters
-	 * with A (eg "i" in depth 2 has prefix IA
+	 * accepts a bigram and returns the appropriate key for the database
+	 * keys are special strings that represent the bigrams used for that part of the database
+	 * keys are determined by both words of the bigram and MAX_CHARS_PER_KEY_WORD
+	 * each word has up to MAX_CHARS_PER_KEY_WORD chars representing it in the key, so max key
+	 * length is 2 * MAX_CHARS_PER_KEY_WORD + 1 (if a word has less chars than MAX_CHARS_PER_KEY_WORD
+	 * then that part of the key will just have as many chars are in that word)
+	 * key chars are ascii letters, 0 for numbers, ! for punctuation, @ for other, and ~
+	 * used to represent the space between word1 and word2
+	 * eg bigram (im, gay), MAX_CHARS_PER_KEY_WORD=3 has key "IM~GAY"
+	 * bigram (999, .things), MAX_CHARS_PER_KEY_WORD=2 has key "00~!T"
+	 * bigram (abcdefghij, hellohowareyoutoday), MAX_CHARS_PER_KEY_WORD=10 has key "ABCDEFGHIJ~HELLOHOWAR"
 	 */
-	private String getPrefix(String word) {
-		//special cases for start token and 0 depth database
-		if(word.equals(START_TOKEN)) return START_PREFIX;
-		if(this.depth == 0) return ZERO_DEPTH_PREFIX;
+	private String getKey(Bigram bigram) {
+		//special case for start token
+		if(bigram.getWord1().equals(START_TOKEN)) return START_KEY;
 		
-		StringBuilder prefix = new StringBuilder();
+		StringBuilder key = new StringBuilder();
 		int index = 0;
 		
-		//loop should happen at least once; depth > 0 by above check and word should be nonempty
-		while(index < this.depth && index < word.length()) {
+		//loop should happen at least once; word should be nonempty
+		String word = bigram.getWord1();
+		while(index < MAX_CHARS_PER_KEY_WORD && index < word.length()) {
 			char ch = word.charAt(index);
 			if (ch >= '0' && ch <= '9') {
-				prefix.append("0");
+				key.append("0");
 			}
 			//strictly use ascii letters
 			else if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) {
-				prefix.append(Character.toUpperCase(ch));
+				key.append(Character.toUpperCase(ch));
 			}
 			else if (PUNCTUATION.matcher(String.valueOf(ch)).matches()) {
-				prefix.append("!");
+				key.append("!");
 			} else {
-				prefix.append("@");
+				key.append("@");
 			}
 			index++;
 		}
-		//fill in remainder up to depth
-		while(index < depth) {
-			prefix.append("A");
+		key.append("~");
+		//now do second word
+		index = 0;
+		word = bigram.getWord2();
+		while(index < MAX_CHARS_PER_KEY_WORD && index < word.length()) {
+			char ch = word.charAt(index);
+			if (ch >= '0' && ch <= '9') {
+				key.append("0");
+			}
+			//strictly use ascii letters
+			else if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) {
+				key.append(Character.toUpperCase(ch));
+			}
+			else if (PUNCTUATION.matcher(String.valueOf(ch)).matches()) {
+				key.append("!");
+			} else {
+				key.append("@");
+			}
 			index++;
 		}
 		
-		//StringBuilder should be nonempty since above loop happened at least once
-		return MyStringPool.INSTANCE.intern(prefix.toString());
+		//StringBuilder should be nonempty since above loops happened at least once
+		return MyStringPool.INSTANCE.intern(key.toString());
 	}
 	
 	private StartDatabaseShard getStartShard() {
@@ -193,7 +222,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 			 * add a general following word set by having the given bigram end a message
 			 */
 			logger.warn(this + " couldn't find following word for " + bigram + " (ex: " + ex.getLocalizedMessage()
-				+ ", constructing default FollowingWordSet w/ END_TOKEN");
+				+ "), constructing default FollowingWordSet w/ END_TOKEN");
 			this.addFollowingWordForBigram(bigram, END_TOKEN);
 			return END_TOKEN;
 		}
@@ -207,6 +236,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		}
 		
 		//this map will track the number of occurrences of each bigram->word pair in the given list
+		//necessary to be able to check that the database contains the given number of occurrences of words
 		TObjectIntMap<Pair<Bigram, String>> bigramWordCounts = new TObjectIntHashMap<>(words.size() * 4 / 3);
 		//at least one element present by above check so this get() never throws exception
 		Bigram currentBigram = new Bigram(START_TOKEN, stripTokens(MyStringPool.INSTANCE.intern(words.get(0))));
@@ -224,15 +254,16 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		{
 			return this.getShard(pair.getLeft()).contains(pair.getLeft(), pair.getRight(), count);
 			//TODO do any concurrency problems occur from calling contains directly on the shard as above?
-			//they do for add/remove but those actually modify the db and contains doesnt so maybe this is ok?
+			//they do for add/remove but those actually modify the db and contains doesnt
 			//seems fine from testing but something to consider
 //			return this.contains(pair.getLeft(), pair.getRight(), count);
 		});
 	}
 	
-	private boolean contains(Bigram bigram, String followingWord, int count) {
-		return this.shardCache.contains(this.getPrefix(bigram.getWord1()), bigram, followingWord, count);
-	}
+//	alternate contains that defers to cache so we can do it atomically. seems unnecessary as above. unused
+//	private boolean contains(Bigram bigram, String followingWord, int count) {
+//		return this.shardCache.contains(this.getKey(bigram), bigram, followingWord, count);
+//	}
 	
 	@Override
 	public boolean removeLine(List<String> words) throws FollowingWordRemovalException {
@@ -259,7 +290,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	private void removeFollowingWordForBigram(Bigram bigram, String followingWord) throws FollowingWordRemovalException {
-		this.shardCache.removeFollowingWord(this.getPrefix(bigram.getWord1()), bigram, followingWord);
+		this.shardCache.removeFollowingWord(this.getKey(bigram), bigram, followingWord);
 	}
 
 	@Override
@@ -274,6 +305,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	
 	@Override
 	public Path saveBackup(String backupName) throws IOException {
+		logger.info(this + "-save-" + backupName + ": beginning saving backup");
 		this.save();
 		
 		final Path databaseDirectory = Paths.get(this.path + File.separator + DATABASE_DIRECTORY_NAME);
@@ -282,6 +314,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		try {
 			createdFile = Files.createFile(targetFile);
 		} catch (FileAlreadyExistsException ex) {
+			//overwriting a backup. back it up and delete it when finished, so it can be restored if unsuccessful
 			createdFile = Files.createTempFile(Paths.get(this.path + File.separator + BACKUP_DIRECTORY_NAME), null, null);
 			Files.copy(targetFile, Paths.get(targetFile.toString() + ".bak"), StandardCopyOption.REPLACE_EXISTING);
 		}
@@ -317,6 +350,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		return targetFile;
 	}
 	
+	/*
+	 * takes a given directory and packs its contents (not itself) as a zip file into the given file
+	 */
 	private void pack(Path directoryToPack, Path zipFile) throws IOException {
 		try (OutputStream os = Files.newOutputStream(zipFile);
 				ZipOutputStream zipStream = new ZipOutputStream(os);
@@ -384,6 +420,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	/*
+	 * unpacks the given file as a zip file into the given directory
 	 * probably needs some kind of validation check for zipslip vulnerability
 	 * but skipping that for now
 	 */
@@ -419,6 +456,9 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		return true;
 	}
 	
+	/*
+	 * given a backup name, returns the path to the file that will be used for that backup
+	 */
 	private Path getBackupPath(String backupName) {
 		return Paths.get(this.path + File.separator + BACKUP_DIRECTORY_NAME
 				+ File.separator + this.id + "_" + backupName + ".zip");
@@ -432,24 +472,31 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		return this.shardCache.getLoadLock();
 	}
 
+	/*
+	 * builds human readable version of database
+	 * checks all .database files in directory
+	 * like everything else, breaks if outside sources modify db files
+	 */
 	@Override
 	public void exportToTextFile() {
-		/*
-		 * builds human readable version of database
-		 * checks all .database files in directory
-		 * like everything else, breaks if outside sources modify db files
-		 */
+		this.save();
 		String timeStamp = new SimpleDateFormat("yyyyMMdd-HHmmss").format(Calendar.getInstance().getTime());
 		String path = this.path + File.separator + this.id + "_" + timeStamp + ".txt";
-		for(File file : FileUtils.listFiles(new File(this.path), FileFilterUtils.suffixFileFilter(".database"), TrueFileFilter.TRUE)) {
-			try {
-				this.shardCache.writeDatabaseShardString(file, path);
-			} catch (IOException e) {
-				logger.error("exception in trying to export " + this.toString() + " to text file, aborting! file: ' "
-						+ file.toString() + "', exception: " + e.getLocalizedMessage());
-				e.printStackTrace();
-				break;
+		try (BufferedWriter output = Files.newBufferedWriter(Paths.get(path), StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
+			for(File file : FileUtils.listFiles(new File(this.path), FileFilterUtils.suffixFileFilter(".database"), TrueFileFilter.TRUE)) {
+				try {
+					this.shardCache.writeDatabaseShardString(output, file);
+				} catch (IOException e) {
+					logger.error("exception in trying to export " + this.toString() + " to text file, aborting! file: ' "
+							+ file.toString() + "', exception: " + e.getLocalizedMessage());
+					e.printStackTrace();
+					break;
+				}
 			}
+		} catch (IOException e1) {
+			logger.error("general io exception in trying to export " + this.toString() + " to text file, aborting! exception: "
+					+ e1.getLocalizedMessage());
+			e1.printStackTrace();
 		}
 	}
 
@@ -477,13 +524,5 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		sb.append(this.id);
 		return sb.toString();
 	}
-
 	
-
-
-	
-
-
-	
-
 }

@@ -5,36 +5,39 @@ import java.util.concurrent.ForkJoinPool;
 
 import my.cute.markov2.MarkovDatabase;
 
+/*
+ * entry point from outside this api
+ * used to construct a MarkovDatabase object
+ */
 public final class MarkovDatabaseBuilder {
 
 	/*
 	 * unique identifier for this database
-	 * if it changes, database will create a new directory and not load old versions
+	 * changing id eg in between runs will effectively create a new database, 
+	 * since id is used in directory file structure as well as identification
+	 * in program
 	 */
-	private String id;
+	private final String id;
 	/*
 	 * parent directory for this database to create its save directory in
 	 */
-	private String parentPath;
+	private final String parentPath;
 	
 	//optional parameters
-	/*
-	 * depth of database. number of shards is equal to ~29^depth
-	 */
-	private int depth = 1;
 	/*
 	 * size of cache (number of shards kept in memory at once)
 	 * cache will temporarily go over this number until it calls cleanUp()
 	 * setting a low fixedCleanupThreshold will reduce this, but requires more
-	 * frequent saves/loads (slower)
+	 * frequent saves/loads (slower) (see fixedCleanupThreshold)
+	 * a size of 0 will cause entries to be evicted immediately after entering cache
+	 * a negative size (default) will impose no size restriction on cache
 	 */
-	private int shardCacheSize = 10;
-	/*
-	 * method of serialization. TODO remove this and just use serialize, its quicker than json
-	 */
-	private SaveType saveType = SaveType.SERIALIZE;
+	private int shardCacheSize = -1;
+
 	/*
 	 * specifies Executor used by the cache for additional tasks (eg maintenance)
+	 * passing in null will cause the database to execute all tasks in the current thread,
+	 * effectively disabling all cache-related multithreading
 	 */
 	private ExecutorService executorService = ForkJoinPool.commonPool();
 	/*
@@ -50,16 +53,6 @@ public final class MarkovDatabaseBuilder {
 		this.id = id;
 		this.parentPath = parentPath;
 		
-	}
-	
-	public MarkovDatabaseBuilder depth(int depth) {
-		this.depth = depth;
-		return this;
-	}
-	
-	public MarkovDatabaseBuilder saveType(SaveType saveType) {
-		this.saveType = saveType;
-		return this;
 	}
 	
 	public MarkovDatabaseBuilder shardCacheSize(int shardCacheSize) {
@@ -88,14 +81,6 @@ public final class MarkovDatabaseBuilder {
 
 	public String getParentPath() {
 		return parentPath;
-	}
-
-	public int getDepth() {
-		return depth;
-	}
-
-	public SaveType getSaveType() {
-		return saveType;
 	}
 	
 	public int getShardCacheSize() {

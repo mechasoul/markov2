@@ -1,6 +1,7 @@
 package my.cute.markov2.impl;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Random;
 
 import org.nustaq.serialization.FSTBasicObjectSerializer;
@@ -15,9 +16,15 @@ import org.nustaq.serialization.FSTClazzInfo.FSTFieldInfo;
  */
 interface FollowingWordSet {
 	
+	/*
+	 * each implementation has its own Type
+	 * different implementations need to be (de)serialized differently, 
+	 * so use type to determine how to do that
+	 */
 	public static enum Type {
 		SMALL(0),
-		LARGE(1);
+		LARGE(1),
+		TINY(2);
 		
 		private int value;
 		
@@ -43,6 +50,7 @@ interface FollowingWordSet {
 		 * important note: NOT using specific serializers for each fws type here, 
 		 * because doing so means that we use the same serializer to read back from
 		 * disk and consequently have to build the fws entirely from read data that was on disk
+		 * (because of how the instantiate/readobject stuff works in fst)
 		 * current implementation needs a reference to the bigram the fws is connected to 
 		 * (eg for hashcode), and the readObject()/instantiate() methods are limited
 		 * in what data can be passed to them, so we need to construct fws from elsewhere
@@ -52,9 +60,14 @@ interface FollowingWordSet {
 		 * bigram passed in (see DatabaseWrapper.Serializer.instantiate())
 		 * 
 		 * some implementation stuff that im not happy with is necessary as a result (eg getType(), 
-		 * writeToOutput() in fws interface), and i guess these could be avoided by eg testing 
-		 * instanceof in writeObject() and casting to the correct result, but i think thats even
-		 * uglier than this current solution. maybe theres a better way but for now this is fine
+		 * writeToOutput() in fws interface), and i guess these could be avoided by eg putting them
+		 * in implementation classes and not interface and then testing instanceof in writeObject() 
+		 * and casting to the result to get access to those implementation-specific methods but i 
+		 * think thats even uglier than this current solution. maybe theres a better way but for now
+		 * this is fine
+		 * 
+		 * note: currently unused because databasewrapper.serializer is being used instead
+		 * consider removing entirely
 		 */
 		@Override
 		public void writeObject(FSTObjectOutput out, Object toWrite, FSTClazzInfo clzInfo, FSTFieldInfo referencedBy,
@@ -134,15 +147,24 @@ interface FollowingWordSet {
 	/*
 	 * returns the type of the fws
 	 */
-	public Type getType();
+	public FollowingWordSet.Type getType();
 	
 	/*
-	 * writes output of fws to disk
+	 * writes output of fws to the given stream
 	 */
 	public void writeToOutput(FSTObjectOutput out) throws IOException;
 	
 	/*
 	 * returns a minimal String representation of the set's contents
+	 * should this just be tostring()?
 	 */
 	public String toStringPlain();
+	
+	/*
+	 * get raw wordlist that backs the fws
+	 * another questionable inclusion, but implementations use a synchronized Collection
+	 * and so manually synchronizing on the collection is necessary during iteration
+	 * is it ok to just synchronize on the fws itself? could delete this if so
+	 */
+	public List<String> getWords();
 }

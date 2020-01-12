@@ -10,41 +10,18 @@ import java.util.List;
 import org.nustaq.serialization.FSTObjectOutput;
 import org.nustaq.serialization.annotations.Flat;
 
+/*
+ * FollowingWordSet implementation used for less commonly used bigrams
+ * set is maintained as a simple arraylist and each time a word is used it's
+ * added to the list. this is a very lightweight implementation for lists
+ * with few repeated words - as the set grows words tend to be repeated more
+ * frequently, so LargeFollowingWordSet is used in that case
+ * due to the backing arraylist, getRandomWeightedWord() is O(1) and remove()
+ * and contains() are O(n), though the size limitations of this class mean 
+ * that this shouldnt really be a concern
+ */
 @Flat
 class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<String> {
-
-//	static class Serializer extends FSTBasicObjectSerializer {
-//
-//		@Override
-//		public void writeObject(FSTObjectOutput out, Object toWrite, FSTClazzInfo clzInfo, FSTFieldInfo referencedBy,
-//				int streamPosition) throws IOException {
-//			
-//			SmallFollowingWordSet fws = (SmallFollowingWordSet) toWrite;
-//			out.writeInt(fws.size());
-//			synchronized(fws) {
-//				for(String word : fws) {
-//					out.writeUTF(word);
-//				}
-//			}
-//		}
-//		
-//		@Override
-//	    public void readObject(FSTObjectInput in, Object toRead, FSTClazzInfo clzInfo, FSTClazzInfo.FSTFieldInfo referencedBy)
-//	    {
-//	    }
-//		
-//		@Override
-//		public Object instantiate(@SuppressWarnings("rawtypes") Class objectClass, FSTObjectInput in, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee, int streamPosition) throws Exception 
-//		{
-//			int size = in.readInt();
-//			SmallFollowingWordSet obj = new SmallFollowingWordSet(size);
-//			for(int i=0; i < size; i++) {
-//				obj.addWord(MyStringPool.INSTANCE.intern(in.readUTF()));
-//			}
-//			in.registerObject(obj, streamPosition, serializationInfo, referencee);
-//			return obj;
-//		}
-//	}
 	
 	private static final long serialVersionUID = 1L;
 	private final List<String> words;
@@ -55,27 +32,27 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 	/*
 	 * the id for the server this fws (and its corresponding bigram) belong to
 	 */
-	private final String id;
+	private final String parentDatabaseId;
 	
-//	SmallFollowingWordSet() {
-//		this.words = Collections.synchronizedList(new ArrayList<String>(1));
-//	}
-//	
 	SmallFollowingWordSet(String firstWord, Bigram bigram, String id) {
 		this.words = Collections.synchronizedList(new ArrayList<String>(1));
-		this.addWord(firstWord);
 		this.bigram = bigram;
-		this.id = id;
+		this.parentDatabaseId = id;
+		this.addWord(firstWord);
 	}
-//	
-//	SmallFollowingWordSet(int size) {
-//		this.words = Collections.synchronizedList(new ArrayList<String>(size));
-//	}
 	
 	SmallFollowingWordSet(List<String> list, Bigram bigram, String id) {
 		this.words = list;
 		this.bigram = bigram;
-		this.id = id;
+		this.parentDatabaseId = id;
+	}
+	
+	SmallFollowingWordSet(FollowingWordSet set, String newWord, Bigram bigram, String id) {
+		this.words = Collections.synchronizedList(new ArrayList<String>(set.getWords()));
+		this.bigram = bigram;
+		this.parentDatabaseId = id;
+		this.addWord(newWord);
+		
 	}
 	
 	@Override
@@ -94,7 +71,7 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 	}
 	
 	/*
-	 * O(n) for this implementation of FollowingWordSet. use sparingly
+	 * O(n) for this implementation of FollowingWordSet
 	 */
 	@Override
 	public boolean contains(String followingWord) {
@@ -111,7 +88,7 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 	}
 
 	/*
-	 * O(n) for this implementation of FollowingWordSet. use sparingly
+	 * O(n) for this implementation of FollowingWordSet
 	 */
 	@Override
 	public boolean remove(String followingWord) {
@@ -132,7 +109,7 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 
 	@Override
 	public String getId() {
-		return this.id;
+		return this.parentDatabaseId;
 	}
 
 	/*
@@ -146,7 +123,8 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 	/*
 	 * for synchronizing on
 	 */
-	List<String> getRawWords() {
+	@Override
+	public List<String> getWords() {
 		return this.words;
 	}
 
@@ -155,7 +133,7 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 		final int prime = 31;
 		int result = 1;
 		result = prime * result + ((bigram == null) ? 0 : bigram.hashCode());
-		result = prime * result + ((id == null) ? 0 : id.hashCode());
+		result = prime * result + ((parentDatabaseId == null) ? 0 : parentDatabaseId.hashCode());
 		return result;
 	}
 
@@ -171,10 +149,10 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 				return false;
 		} else if (!bigram.equals(other.bigram))
 			return false;
-		if (id == null) {
-			if (other.id != null)
+		if (parentDatabaseId == null) {
+			if (other.parentDatabaseId != null)
 				return false;
-		} else if (!id.equals(other.id))
+		} else if (!parentDatabaseId.equals(other.parentDatabaseId))
 			return false;
 		return true;
 	}

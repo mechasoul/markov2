@@ -1,13 +1,9 @@
-//will be more complex in fws-B due to different database types
-//serializer must be rewritten
-
 package my.cute.markov2.impl;
 
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -23,10 +19,18 @@ import org.nustaq.serialization.annotations.Flat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.ImmutableList;
+
 import gnu.trove.TCollections;
 import gnu.trove.map.TObjectIntMap;
 import gnu.trove.map.hash.TObjectIntHashMap;
 
+/*
+ * basically just a wrapper class around a ConcurrentMap used to hold the database's
+ * data (mapping bigram->followingwordset) and extended for certain functionality (ie
+ * specifying how to serialize)
+ * shallow immutable (database map is mutable)
+ */
 @Flat
 class DatabaseWrapper implements Serializable {
 
@@ -34,6 +38,7 @@ class DatabaseWrapper implements Serializable {
 	private static final Logger logger = LoggerFactory.getLogger(DatabaseWrapper.class);
 	private static final long serialVersionUID = 1L;
 
+	//used for serializing DatabaseWrapper
 	static class Serializer extends FSTBasicObjectSerializer {
 
 		@Override
@@ -42,10 +47,12 @@ class DatabaseWrapper implements Serializable {
 			
 			DatabaseWrapper db = (DatabaseWrapper) toWrite;
 			out.writeInt(db.size());
-			out.writeUTF(db.getPrefix());
+			out.writeUTF(db.getKey());
 			out.writeUTF(db.getId());
 			for(Map.Entry<Bigram, FollowingWordSet> next : db.entrySet()) {
 				out.writeObject(next.getKey(), Bigram.class);
+				//some jank required to get the IOException out of the writing process
+				//so the implementations have been moved to their own classes for clarity
 				next.getValue().writeToOutput(out);
 			}
 		}
@@ -60,9 +67,9 @@ class DatabaseWrapper implements Serializable {
 		{
 			
 			int dbSize = in.readInt();
-			String prefix = MyStringPool.INSTANCE.intern(in.readUTF());
+			String key = MyStringPool.INSTANCE.intern(in.readUTF());
 			String id = MyStringPool.INSTANCE.intern(in.readUTF());
-			ConcurrentMap<Bigram, FollowingWordSet> db = new ConcurrentHashMap<Bigram, FollowingWordSet>(dbSize * 4 / 3);
+			ConcurrentMap<Bigram, FollowingWordSet> db = new ConcurrentHashMap<Bigram, FollowingWordSet>(dbSize * 4 / 3, 0.8f);
 			for(int i=0; i < dbSize; i++) {
 				Bigram bigram = (Bigram) in.readObject(Bigram.class);
 				
@@ -75,6 +82,13 @@ class DatabaseWrapper implements Serializable {
 						list.add(MyStringPool.INSTANCE.intern(in.readUTF()));
 					}
 					fws = new SmallFollowingWordSet(list, bigram, id);
+				} else if(type == FollowingWordSet.Type.TINY) {
+					int listSize = in.readInt();
+					ImmutableList.Builder<String> builder = ImmutableList.<String>builderWithExpectedSize(listSize);
+					for(int j=0; j < listSize; j++) {
+						builder.add(MyStringPool.INSTANCE.intern(in.readUTF()));
+					}
+					fws = TinyFollowingWordSet.of(builder.build());
 				} else {
 					//type == FollowingWordSet.Type.LARGE
 					int mapSize = in.readInt();
@@ -90,62 +104,34 @@ class DatabaseWrapper implements Serializable {
 				}
 				db.put(bigram, fws);
 			}
-			DatabaseWrapper object = new DatabaseWrapper(db, prefix, id);
+			DatabaseWrapper object = new DatabaseWrapper(db, key, id);
 			in.registerObject(object, streamPosition, serializationInfo, referencee);
 			return object;
 		}
 	}
 	
-	/*
-	 * TODO continue fixing this stuff i guess
-	 * the custom serializer seems to work properly but needs to be tested in multithread environment
-	 * seems fine in multithreaded environment
-	 * cant tell if strong or weak references in string pool are better? need test under heap load
-	 * kinda want to test native intern() again? if it was blocking on io or something maybw its better now
-	 * maybe test skipping the custom bigram serializer and just integrate it into db serializing directly
-	 * this is close to being as good as its gonna get i guess
-	 * need to test 0 db size for minimal memory
-	 * see how small of a heap it fits into
-	 * also interested in trying like, immutable arraylists for followingwordsets 
-	 * if we intern them theres potential for a lot of memory saving i think?
-	 * eg theres probably a ton of fws that are just {<_end>}, and theyre all duuplicated
-	 * prob leave that for after though, i want to test fws-B first
-	 * & we'll have to merge guava interning + fst serializing into master too
-	 */
-	
-	private final String prefix;
+	private final String key;
 	private final String parentDatabaseId;
 	private final ConcurrentMap<Bigram, FollowingWordSet> database;
 	
-//	DatabaseWrapper() {
-//		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(3);
-//		//danger
-//		this.prefix = null;
-//		this.parentDatabaseId = null;
-//	}
-	
-	DatabaseWrapper(String prefix, String id) {
-		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(3);
-		this.prefix = prefix;
+	DatabaseWrapper(String key, String id) {
+		this.database = new ConcurrentHashMap<Bigram, FollowingWordSet>(1);
+		this.key = key;
 		this.parentDatabaseId = id;
 	}
 	
-	DatabaseWrapper(ConcurrentMap<Bigram, FollowingWordSet> map, String prefix, String id) {
+	DatabaseWrapper(ConcurrentMap<Bigram, FollowingWordSet> map, String key, String id) {
 		this.database = map;
-		this.prefix = prefix;
+		this.key = key;
 		this.parentDatabaseId = id;
 	}
 
-	public FollowingWordSet get(Bigram key) {
-		return this.database.get(key);
+	public FollowingWordSet get(Bigram bigram) {
+		return this.database.get(bigram);
 	}
-
-	public Iterator<Map.Entry<Bigram, FollowingWordSet>> iterator() {
-		return this.database.entrySet().iterator();
-	}
-
-	public FollowingWordSet put(Bigram key, FollowingWordSet value) {
-		return this.database.put(key, value);
+	
+	public FollowingWordSet put(Bigram bigram, FollowingWordSet words) {
+		return this.database.put(bigram, words);
 	}
 
 	public int size() {
@@ -164,8 +150,8 @@ class DatabaseWrapper implements Serializable {
 		return this.database.remove(bigram) != null;
 	}
 
-	public String getPrefix() {
-		return this.prefix;
+	public String getKey() {
+		return this.key;
 	}
 
 	public String getId() {
@@ -177,14 +163,13 @@ class DatabaseWrapper implements Serializable {
 	 * shard in the same markovdb, which is reflected here
 	 * i think this makes more sense than db wrapper equality depending on its contents, and it also
 	 * means a DatabaseWrapper's hashcode and equality will not change after creation
-	 * its slightly abstract and possibly unintuitive but again i think it does make sense
 	 */
 	@Override
 	public int hashCode() {
 		final int prime = 31;
 		int result = 1;
 		result = prime * result + ((parentDatabaseId == null) ? 0 : parentDatabaseId.hashCode());
-		result = prime * result + ((prefix == null) ? 0 : prefix.hashCode());
+		result = prime * result + ((key == null) ? 0 : key.hashCode());
 		return result;
 	}
 
@@ -200,10 +185,10 @@ class DatabaseWrapper implements Serializable {
 				return false;
 		} else if (!parentDatabaseId.equals(other.parentDatabaseId))
 			return false;
-		if (prefix == null) {
-			if (other.prefix != null)
+		if (key == null) {
+			if (other.key != null)
 				return false;
-		} else if (!prefix.equals(other.prefix))
+		} else if (!key.equals(other.key))
 			return false;
 		return true;
 	}
@@ -211,8 +196,8 @@ class DatabaseWrapper implements Serializable {
 	@Override
 	public String toString() {
 		StringBuilder builder = new StringBuilder();
-		builder.append("DatabaseWrapper [prefix=");
-		builder.append(prefix);
+		builder.append("DatabaseWrapper [key=");
+		builder.append(key);
 		builder.append(", parentDatabaseId=");
 		builder.append(parentDatabaseId);
 		builder.append("]");

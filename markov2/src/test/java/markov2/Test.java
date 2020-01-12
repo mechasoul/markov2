@@ -29,7 +29,6 @@ import my.cute.markov2.impl.Bigram;
 import my.cute.markov2.impl.LargeFollowingWordSet;
 import my.cute.markov2.impl.MarkovDatabaseBuilder;
 import my.cute.markov2.impl.MarkovDatabaseImpl;
-import my.cute.markov2.impl.MyThreadPool;
 import my.cute.markov2.impl.SaveType;
 import my.cute.markov2.impl.ShardLoader;
 
@@ -52,11 +51,9 @@ public class Test {
 		ForkJoinPool exec = ForkJoinPool.commonPool();
 		
 		MarkovDatabase db = new MarkovDatabaseBuilder(id, path)
-			.depth(2)
-			.shardCacheSize(800)
-			.saveType(SaveType.SERIALIZE)
+			.shardCacheSize(0)
 			.executorService(exec)
-			.fixedCleanupThreshold(0)
+			.fixedCleanupThreshold(100)
 			.build();
 		db.load();
 		List<String> testLines = null;
@@ -66,7 +63,7 @@ public class Test {
 		try (Stream<String> lines = Files.lines(Paths.get(inPath), StandardCharsets.UTF_8)){
 			tempTime1 = System.currentTimeMillis();
 			lines
-//				.limit(100000)
+				.limit(100000)
 				.forEach(string -> 
 			{
 				if(StringUtils.isWhitespace(string)) return;

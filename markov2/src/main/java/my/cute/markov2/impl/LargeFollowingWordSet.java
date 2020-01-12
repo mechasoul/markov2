@@ -2,8 +2,7 @@ package my.cute.markov2.impl;
 
 import java.io.IOException;
 import java.io.Serializable;
-import java.io.UncheckedIOException;
-
+import java.util.List;
 import org.nustaq.serialization.FSTObjectOutput;
 import org.nustaq.serialization.annotations.Flat;
 
@@ -11,114 +10,69 @@ import gnu.trove.TCollections;
 import gnu.trove.iterator.TObjectIntIterator;
 import gnu.trove.map.TObjectIntMap;
 import gnu.trove.map.hash.TObjectIntHashMap;
-import gnu.trove.procedure.TObjectIntProcedure;
 
+/*
+ * FollowingWordSet implementation for large sets (commonly used bigrams)
+ * small maps (small, tiny) use a list and every time a word is used it's added
+ * to the list, so a word can occur many times in the list if it's repeated.
+ * in this class, instead of just recording each raw instance of a word's use, use a 
+ * map of words-> occurrences. for sets where words are frequently repeated, the 
+ * maintenance cost of the map is outweighed by the memory saved from replacing 
+ * multiple instances of the same string in a list (iirc from testing/examination 
+ * breakpoint was around 4 average uses of any unique word in the list). larger sets
+ * typically repeat elements more frequently, so this implementation is used for 
+ * sufficiently large sets (not always more efficient - eg a set with 1000 unique
+ * words each used once would be stored as a map where each entry's key is a word
+ * and value is 1, adding memory/time overhead for no gain - but in application
+ * this is very uncommon and this approach saves space a large enough majority of
+ * the time to be valuable)
+ * note that this implementation has O(1) time for contains() and remove(), but
+ * O(n) time for getRandomWeightedWord()
+ */
 @Flat
 public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 	
-//	static class Serializer extends FSTBasicObjectSerializer {
-//
-//		@Override
-//		public void writeObject(FSTObjectOutput out, Object toWrite, FSTClazzInfo clzInfo, FSTFieldInfo referencedBy,
-//				int streamPosition) throws IOException {
-//			
-//			LargeFollowingWordSet fws = (LargeFollowingWordSet) toWrite;
-//			out.writeInt(fws.numEntries());
-//			synchronized(fws) {
-//				try {
-//					fws.forEachEntry((word, count) ->
-//					{
-//						out.writeUTF(word);
-//						out.writeInt(count);
-//						return true;
-//					});
-//				} catch (UncheckedIOException ex) {
-//					//rethrow outside of lambda
-//					throw ex.getCause();
-//				}
-//			}
-//		}
-//		
-//		@Override
-//	    public void readObject(FSTObjectInput in, Object toRead, FSTClazzInfo clzInfo, FSTClazzInfo.FSTFieldInfo referencedBy)
-//	    {
-//	    }
-//		
-//		@Override
-//		public Object instantiate(@SuppressWarnings("rawtypes") Class objectClass, FSTObjectInput in, FSTClazzInfo serializationInfo, FSTClazzInfo.FSTFieldInfo referencee, int streamPosition) throws Exception 
-//		{
-//			int size = in.readInt();
-//			LargeFollowingWordSet obj = new LargeFollowingWordSet(size);
-//			for(int i=0; i < size; i++) {
-//				String word = MyStringPool.INSTANCE.intern(in.readUTF());
-//				int count = in.readInt();
-//				obj.addWordWithCount(word, count);
-//			}
-//			in.registerObject(obj, streamPosition, serializationInfo, referencee);
-//			return obj;
-//		}
-//	}
+	private static final long serialVersionUID = 1L;
+	/*
+	 * actual data of the set - map of words to their frequencies
+	 * using trove because its specialized maps are more efficient
+	 * than typical jdk implementations
+	 */
+	private final TObjectIntMap<String> words;
+	/*
+	 * the total size of the set
+	 */
+	private int totalWordCount;
+	
+	private final Bigram bigram;
+	private final String parentDatabaseId;
 	
 	/*
-	 * extend trove procedure to rethrow exception outside of lambda
-	 * janky but the best way i can think of to get the exception thrown from 
-	 * a serializer's writeObject()
+	 * constructor used when building from a small followingwordset. used
+	 * when a small fws has reached the threshold to be converted to large
 	 */
-	@FunctionalInterface
-	private static interface IOProcedure<E> extends TObjectIntProcedure<E> {
-		
-		@Override
-		default boolean execute(E e, int b) {
-			try {
-				return executeIO(e, b);
-			} catch (IOException ex) {
-				throw new UncheckedIOException(ex);
-			}
-		}
-		
-		boolean executeIO(E e, int b) throws IOException;
-	}
-	
-	private static final long serialVersionUID = 1L;
-	private final TObjectIntMap<String> words;
-	private int totalWordCount;
-	private final Bigram bigram;
-	private final String id;
-	
-//	LargeFollowingWordSet() {
-//		this.totalWordCount = 0;
-//		this.words = TCollections.synchronizedMap(new TObjectIntHashMap<String>(5, 0.8f));
-//	}
-//	
-//	LargeFollowingWordSet(String firstWord) {
-//		this();
-//		this.words.put(firstWord, 1);
-//		this.incrementTotal();
-//	}
-//	
 	LargeFollowingWordSet(SmallFollowingWordSet set) {
 		this.totalWordCount = 0;
-		this.words = TCollections.synchronizedMap(new TObjectIntHashMap<String>(set.size() * 5 / 4, 0.8f));
-		synchronized(set.getRawWords()) {
+		this.words = TCollections.synchronizedMap(new TObjectIntHashMap<String>(set.size() * 11 / 8, 0.8f));
+		//set uses a synchronized wrapper on arraylist - must manually synchronize on it when iterating
+		synchronized(set.getWords()) {
 			for(String word : set) {
 				this.addWord(word);
 				this.incrementTotal();
 			}
 		}
 		this.bigram = set.getBigram();
-		this.id = set.getId();
+		this.parentDatabaseId = set.getId();
 	}
-//	
-//	LargeFollowingWordSet(int size) {
-//		this.totalWordCount = 0;
-//		this.words = TCollections.synchronizedMap(new TObjectIntHashMap<String>(size * 5 / 4, 0.8f));
-//	}
 	
+	/*
+	 * constructor used with all data given. used during deserialization
+	 */
 	LargeFollowingWordSet(TObjectIntMap<String> map, int wordCount, Bigram bigram, String id) {
 		this.words = map;
 		this.totalWordCount = wordCount;
 		this.bigram = bigram;
-		this.id = id;
+		this.parentDatabaseId = id;
 	}
 
 	@Override
@@ -136,8 +90,7 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 		int count = RANDOM.nextInt(this.totalWordCount);
 		//need to synchronize when iterating over THashMap
 		synchronized(this.words) {
-			TObjectIntIterator<String> iterator = this.words.iterator();
-			for(int i=0; i < this.words.size(); i++) {
+			for(TObjectIntIterator<String> iterator = this.words.iterator(); iterator.hasNext();) {
 				iterator.advance();
 				if(count < iterator.value()) {
 					chosenWord = iterator.key();
@@ -201,7 +154,7 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 
 	@Override
 	public String getId() {
-		return this.id;
+		return this.parentDatabaseId;
 	}
 	
 	public int numEntries() {
@@ -215,23 +168,13 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 	private void decrementTotal() {
 		this.totalWordCount--;
 	}
-	
-	/*
-	 * note we need this to propagate thrown IOExceptions, and any thrown IOExceptions 
-	 * will be rethrown as UncheckedIOException() via the IOProcedure wrapper
-	 */
-	boolean forEachEntry(IOProcedure<String> procedure) {
-		return this.words.forEachEntry(procedure);
-	}
-
-	
 
 	@Override
 	public int hashCode() {
 		final int prime = 31;
 		int result = 1;
 		result = prime * result + ((bigram == null) ? 0 : bigram.hashCode());
-		result = prime * result + ((id == null) ? 0 : id.hashCode());
+		result = prime * result + ((parentDatabaseId == null) ? 0 : parentDatabaseId.hashCode());
 		return result;
 	}
 
@@ -247,10 +190,10 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 				return false;
 		} else if (!bigram.equals(other.bigram))
 			return false;
-		if (id == null) {
-			if (other.id != null)
+		if (parentDatabaseId == null) {
+			if (other.parentDatabaseId != null)
 				return false;
-		} else if (!id.equals(other.id))
+		} else if (!parentDatabaseId.equals(other.parentDatabaseId))
 			return false;
 		return true;
 	}
@@ -280,19 +223,19 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 	public void writeToOutput(FSTObjectOutput out) throws IOException {
 		out.writeInt(this.getType().getValue());
 		out.writeInt(this.numEntries());
-		try {
-			synchronized(this.words) {
-				this.forEachEntry((word, count) ->
-				{
-					out.writeUTF(word);
-					out.writeInt(count);
-					return true;
-				});
+		
+		synchronized(this.words) {
+			for(TObjectIntIterator<String> iterator = this.words.iterator(); iterator.hasNext();) {
+				iterator.advance();
+				out.writeUTF(iterator.key());
+				out.writeInt(iterator.value());
 			}
-		} catch (UncheckedIOException ex) {
-			//rethrow outside of lambda
-			throw ex.getCause();
 		}
+	}
+
+	@Override
+	public List<String> getWords() {
+		throw new UnsupportedOperationException("can't get wordlist from LargeFollowingWordSet");
 	}
 
 	
