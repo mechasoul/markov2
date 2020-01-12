@@ -524,13 +524,5 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		sb.append(this.id);
 		return sb.toString();
 	}
-
 	
-
-
-	
-
-
-	
-
 }

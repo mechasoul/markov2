@@ -53,7 +53,7 @@ class DatabaseShard {
 	 * LargeFollowingWordSet at LARGE_WORD_SET_THRESHOLD entries
 	 */
 	private static final int LARGE_WORD_SET_THRESHOLD = 24;
-	private static final int SMALL_WORD_SET_THRESHOLD = 3;
+	private static final int SMALL_WORD_SET_THRESHOLD = 4;
 	
 	protected static final FSTConfiguration CONF = FSTConfiguration.getDefaultConfiguration();
 	
