@@ -17,12 +17,22 @@ import org.nustaq.serialization.FSTObjectOutput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/*
+ * unique databaseshard that holds all bigrams where the first word is
+ * the start-of-line indicator. requires some extra stuff to efficiently
+ * and accurately generate starting words for line generation
+ */
 class StartDatabaseShard extends DatabaseShard {
 
 	@SuppressWarnings("unused")
 	private static final Logger logger = LoggerFactory.getLogger(StartDatabaseShard.class);
 	private static transient final Random RANDOM = new Random();
 	
+	/*
+	 * the total number of processed bigrams in this shard. because each
+	 * processed line has exactly one start token, this is equivalent to
+	 * the number of lines currently processed in the database
+	 */
 	private int totalCount;
 	
 	StartDatabaseShard(String id, String key, String parentPath) {
@@ -56,7 +66,8 @@ class StartDatabaseShard extends DatabaseShard {
 		}
 		
 		/* sum of totalWordCount over all entries should be the same as this.totalCount
-		 * so the only way this returns default string "hello" is if db is empty
+		 * so the only way this returns default string "hello" is if db is empty, in
+		 * which case illegalargumentexception should have ben thrown
 		 */
 		return word;
 	}
@@ -104,6 +115,8 @@ class StartDatabaseShard extends DatabaseShard {
 				throw new IOException(ex);
 			}
 			this.totalCount = in.readInt();
+		} catch (FileNotFoundException ex) {
+			//nothing to load. probably first run. do nothing
 		}
 	}
 

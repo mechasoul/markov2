@@ -11,44 +11,50 @@ import gnu.trove.iterator.TObjectIntIterator;
 import gnu.trove.map.TObjectIntMap;
 import gnu.trove.map.hash.TObjectIntHashMap;
 
+/*
+ * FollowingWordSet implementation for large sets (commonly used bigrams)
+ * small maps (small, tiny) use a list and every time a word is used it's added
+ * to the list, so a word can occur many times in the list if it's repeated.
+ * in this class, instead of just recording each raw instance of a word's use, use a 
+ * map of words-> occurrences. for sets where words are frequently repeated, the 
+ * maintenance cost of the map is outweighed by the memory saved from replacing 
+ * multiple instances of the same string in a list (iirc from testing/examination 
+ * breakpoint was around 4 average uses of any unique word in the list). larger sets
+ * typically repeat elements more frequently, so this implementation is used for 
+ * sufficiently large sets (not always more efficient - eg a set with 1000 unique
+ * words each used once would be stored as a map where each entry's key is a word
+ * and value is 1, adding memory/time overhead for no gain - but in application
+ * this is very uncommon and this approach saves space a large enough majority of
+ * the time to be valuable)
+ * note that this implementation has O(1) time for contains() and remove(), but
+ * O(n) time for getRandomWeightedWord()
+ */
 @Flat
 public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 	
-//	/*
-//	 * extend trove procedure to rethrow exception outside of lambda
-//	 * trove maps are best iterated on by a .forEachEntry() lambda method because
-//	 * of something about the way theyre stored, and we need to iterate on map
-//	 * when writing all of its values to output during serializer write, so we
-//	 * do this in order to get any ioexception thrown during the forEachEntry out
-//	 * of the lambda so it can be thrown from the serializer's write method as per
-//	 * usual
-//	 * janky but the best way i can think of to do this due to the limitations with
-//	 * lambdas/checked exceptions
-//	 */
-//	@FunctionalInterface
-//	private static interface IOProcedure<E> extends TObjectIntProcedure<E> {
-//		
-//		@Override
-//		default boolean execute(E e, int b) {
-//			try {
-//				return executeIO(e, b);
-//			} catch (IOException ex) {
-//				throw new UncheckedIOException(ex);
-//			}
-//		}
-//		
-//		boolean executeIO(E e, int b) throws IOException;
-//	}
-	
 	private static final long serialVersionUID = 1L;
+	/*
+	 * actual data of the set - map of words to their frequencies
+	 * using trove because its specialized maps are more efficient
+	 * than typical jdk implementations
+	 */
 	private final TObjectIntMap<String> words;
+	/*
+	 * the total size of the set
+	 */
 	private int totalWordCount;
+	
 	private final Bigram bigram;
 	private final String parentDatabaseId;
 	
+	/*
+	 * constructor used when building from a small followingwordset. used
+	 * when a small fws has reached the threshold to be converted to large
+	 */
 	LargeFollowingWordSet(SmallFollowingWordSet set) {
 		this.totalWordCount = 0;
 		this.words = TCollections.synchronizedMap(new TObjectIntHashMap<String>(set.size() * 11 / 8, 0.8f));
+		//set uses a synchronized wrapper on arraylist - must manually synchronize on it when iterating
 		synchronized(set.getWords()) {
 			for(String word : set) {
 				this.addWord(word);
@@ -59,6 +65,9 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 		this.parentDatabaseId = set.getId();
 	}
 	
+	/*
+	 * constructor used with all data given. used during deserialization
+	 */
 	LargeFollowingWordSet(TObjectIntMap<String> map, int wordCount, Bigram bigram, String id) {
 		this.words = map;
 		this.totalWordCount = wordCount;
@@ -159,16 +168,6 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 	private void decrementTotal() {
 		this.totalWordCount--;
 	}
-	
-//	/*
-//	 * note we need this to propagate thrown IOExceptions, and any thrown IOExceptions 
-//	 * will be rethrown as UncheckedIOException() via the IOProcedure wrapper
-//	 */
-//	boolean forEachEntry(IOProcedure<String> procedure) {
-//		return this.words.forEachEntry(procedure);
-//	}
-
-	
 
 	@Override
 	public int hashCode() {

@@ -16,6 +16,11 @@ import org.nustaq.serialization.FSTClazzInfo.FSTFieldInfo;
  */
 interface FollowingWordSet {
 	
+	/*
+	 * each implementation has its own Type
+	 * different implementations need to be (de)serialized differently, 
+	 * so use type to determine how to do that
+	 */
 	public static enum Type {
 		SMALL(0),
 		LARGE(1),
@@ -60,6 +65,9 @@ interface FollowingWordSet {
 		 * and casting to the result to get access to those implementation-specific methods but i 
 		 * think thats even uglier than this current solution. maybe theres a better way but for now
 		 * this is fine
+		 * 
+		 * note: currently unused because databasewrapper.serializer is being used instead
+		 * consider removing entirely
 		 */
 		@Override
 		public void writeObject(FSTObjectOutput out, Object toWrite, FSTClazzInfo clzInfo, FSTFieldInfo referencedBy,
@@ -139,10 +147,10 @@ interface FollowingWordSet {
 	/*
 	 * returns the type of the fws
 	 */
-	public Type getType();
+	public FollowingWordSet.Type getType();
 	
 	/*
-	 * writes output of fws to disk
+	 * writes output of fws to the given stream
 	 */
 	public void writeToOutput(FSTObjectOutput out) throws IOException;
 	
@@ -154,7 +162,9 @@ interface FollowingWordSet {
 	
 	/*
 	 * get raw wordlist that backs the fws
-	 * questionable
+	 * another questionable inclusion, but implementations use a synchronized Collection
+	 * and so manually synchronizing on the collection is necessary during iteration
+	 * is it ok to just synchronize on the fws itself? could delete this if so
 	 */
 	public List<String> getWords();
 }

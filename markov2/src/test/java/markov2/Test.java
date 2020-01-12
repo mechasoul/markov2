@@ -29,7 +29,6 @@ import my.cute.markov2.impl.Bigram;
 import my.cute.markov2.impl.LargeFollowingWordSet;
 import my.cute.markov2.impl.MarkovDatabaseBuilder;
 import my.cute.markov2.impl.MarkovDatabaseImpl;
-import my.cute.markov2.impl.MyThreadPool;
 import my.cute.markov2.impl.SaveType;
 import my.cute.markov2.impl.ShardLoader;
 
@@ -53,7 +52,6 @@ public class Test {
 		
 		MarkovDatabase db = new MarkovDatabaseBuilder(id, path)
 			.shardCacheSize(0)
-			.saveType(SaveType.SERIALIZE)
 			.executorService(exec)
 			.fixedCleanupThreshold(100)
 			.build();

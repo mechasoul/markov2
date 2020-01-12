@@ -3,11 +3,30 @@ package my.cute.markov2.impl;
 import java.io.File;
 import java.util.concurrent.locks.ReentrantLock;
 
+/*
+ * responsible for loading databaseshards from disk, so it can pass them
+ * to the relevant shardcache. each shardcache uses one shardloader.
+ */
 public final class ShardLoader {
 
+	/*
+	 * id of parent database
+	 */
 	private final String id;
+	/*
+	 * database directory path for this database
+	 */
 	private final String path;
+	/*
+	 * method of deserialization that should be used
+	 */
 	private final SaveType saveType;
+	/*
+	 * used to lock loading operations to prevent concurrency issues with
+	 * potential competitors (especially backup operations, since db state
+	 * could be inconsistent if loads/saves happen during backup load/save)
+	 * unsure if this is actually necessary with current implementation...
+	 */
 	private final ReentrantLock loadLock = new ReentrantLock();
 	
 	ShardLoader(String i, String p, SaveType save) {
@@ -16,11 +35,18 @@ public final class ShardLoader {
 		this.saveType = save;
 	}
 	
+	/*
+	 * creates a shard object for the given key. shard will contain no data
+	 */
 	DatabaseShard createShard(String key) {
 		DatabaseShard shard = new DatabaseShard(this.id, key, this.path);
 		return shard;
 	}
 	
+	/*
+	 * creates a shard object for the given key and loads all data from the
+	 * relevant file. shard will contain all data recorded for it in the db
+	 */
 	DatabaseShard createAndLoadShard(String key) {
 		DatabaseShard shard = new DatabaseShard(this.id, key, this.path);
 		synchronized(this.loadLock) {
@@ -29,6 +55,14 @@ public final class ShardLoader {
 		return shard;
 	}
 	
+	/*
+	 * creates the special shard used for start-of-line bigrams
+	 * this will in applications almost certainly be the heaviest shard
+	 * by a significant amount, so create and load are separated to
+	 * allow the start shard to be initialized at some later time if desired
+	 * like with all shards, should be loaded before any operations using
+	 * shard state (eg adds, removes, contains) are performed
+	 */
 	StartDatabaseShard createStartShard() {
 		StartDatabaseShard shard = new StartDatabaseShard(this.id, MarkovDatabaseImpl.START_KEY, this.path);
 		return shard;

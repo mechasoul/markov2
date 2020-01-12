@@ -1,6 +1,7 @@
 package my.cute.markov2.impl;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -28,16 +29,31 @@ import com.google.gson.reflect.TypeToken;
 
 import my.cute.markov2.exceptions.FollowingWordRemovalException;
 
+/*
+ * class representing a part of the database
+ * each shard contains all data for a given key, in the form of bigrams matching
+ * that key and all the words seen to have followed a given bigram and their frequencies
+ */
 class DatabaseShard {
 
 	private static final Logger logger = LoggerFactory.getLogger(DatabaseShard.class);
+	
+	//gson fields. currently unused
 	protected static final Gson GSON = new GsonBuilder()
 		.enableComplexMapKeySerialization()
 		.create();
 	protected static final Type DATABASE_TYPE = new TypeToken<DatabaseWrapper>() {}.getType();
+	//end gson fields
+	
 	private static final SaveType DEFAULT_SAVE_TYPE = SaveType.SERIALIZE;
+	/*
+	 * these control which FollowingWordSet implementation is used at different database sizes
+	 * TinyFollowingWordSet is used until the set contains at least SMALL_WORD_SET_THRESHOLD
+	 * entries, at which point it's converted to a SmallFollowingWordSet, which is converted to
+	 * LargeFollowingWordSet at LARGE_WORD_SET_THRESHOLD entries
+	 */
 	private static final int LARGE_WORD_SET_THRESHOLD = 24;
-	private static final int SMALL_WORD_SET_THRESHOLD = 4;
+	private static final int SMALL_WORD_SET_THRESHOLD = 3;
 	
 	protected static final FSTConfiguration CONF = FSTConfiguration.getDefaultConfiguration();
 	
@@ -61,18 +77,18 @@ class DatabaseShard {
 	 * used to represent the space between word1 and word2 in the bigram
 	 * each word has up to MarkovDatabaseImpl.MAX_CHARS_PER_KEY_WORD chars representing it in
 	 * the key, so max key length is 2 * MAX_CHARS_PER_KEY_WORD + 1
-	 * examples: bigram (im, gay) has key "IM~GAY"
-	 * bigram (999, things.) has key "000~THINGS!"
-	 * bigram (abcdefghijklmnopqrstuvwxyz, hellohowareyoutoday) has key "ABCDEFGHIJ~HELLOHOWAR"
-	 * (with MAX_CHARS_PER_KEY_WORD = 10)
+	 * eg bigram (im, gay), MAX_CHARS_PER_KEY_WORD=3 has key "IM~GAY"
+	 * bigram (999, .things), MAX_CHARS_PER_KEY_WORD=2 has key "00~!T"
+	 * bigram (abcdefghij, hellohowareyoutoday), MAX_CHARS_PER_KEY_WORD=10 has key "ABCDEFGHIJ~HELLOHOWAR"
 	 */
 	protected String key;
 	/*
 	 * the path to the file on disk that holds this shard's data
 	 * to avoid dumping all our shard files in a single directory, paths are split by each 
-	 * character in the shard's key. files use a .database suffix
-	 * eg shard with key "IM~CUTE" has path:
-	 * \<parent database id>\<database dir string>\I\M\~\C\U\T\E\IM~CUTE.database
+	 * character in the shard's key, up to MarkovDatabaseImpl.MAX_CHARS_PER_KEY_WORD directories
+	 * per key word. database files use a .database suffix
+	 * eg shard with key "IM~CUTE", MAX_CHARS_PER_KEY_WORD=2 has path:
+	 * \<parent database id>\<database dir string>\I\M\~\C\U\IM~CUTE.database
 	 * (where <database dir string> is MarkovDatabaseImpl.DATABASE_DIRECTORY_NAME)
 	 */
 	protected Path path;
@@ -82,8 +98,6 @@ class DatabaseShard {
 	 * starts as a light arraylist-based implementation and switches to a hashmap-based one
 	 * once the followingwordset reaches a certain size
 	 * goal is to minimize memory use as much as possible, sacrificing speed if necessary (to a point...)
-	 * most shards will hold a single bigram. could potentially make this lighter by eliminating the dbwrapper
-	 * structure if it only contains a single bigram->fws?
 	 */
 	protected DatabaseWrapper database;
 	
@@ -96,10 +110,14 @@ class DatabaseShard {
 	}
 	
 	/*
+	 * used to add a single occurrence of the given followingWord for the given bigram
 	 * returns true if new entry in followingwordset was created as a result of this call
-	 * is only used in atomic compute() context
-	 * so the concurrency issues here (eg replacing FollowingWordSet) shouldnt actually be issues
-	 * & consequently be careful using this if not synchronizing or w/e
+	 * 
+	 * note this has concurrency problems (resulting from followingwordset operations? + 
+	 * replacing the followingwordset in some cases) which will rarely result in calling this
+	 * method effectively doing nothing; this isn't a major issue but yeah
+	 * can be avoided by ensuring that this method is called in a synchronized environment?
+	 * ie, use in atomic compute() from in ShardCache
 	 */
 	boolean addFollowingWord(Bigram bigram, String followingWord) {
 		FollowingWordSet followingWordSet = this.database.get(bigram);
@@ -124,7 +142,11 @@ class DatabaseShard {
 		}
 	}
 	
-	//start with tinyfollowingwordset
+	/*
+	 * start with tinyfollowingwordset
+	 * returns true if a new entry was created in the database as a result of this call
+	 * (effectively always unless some unexpected concurrent stuff has happened)
+	 */
 	private boolean addNewBigram(Bigram bigram, String followingWord) {
 		return this.database.putIfAbsent(bigram, TinyFollowingWordSet.of(followingWord)) == null;
 	}
@@ -132,7 +154,7 @@ class DatabaseShard {
 	/*
 	 * gets a weighted random word that follows the given bigram according to the shard
 	 * throws IllegalArgumentException if the given bigram isn't present in the shard
-	 * (shouldn't happen)
+	 * (shouldn't happen normally, but could if there are issues when adding words)
 	 */
 	String getFollowingWord(Bigram bigram) throws IllegalArgumentException {
 		FollowingWordSet followingWordSet = this.database.get(bigram);
@@ -144,7 +166,7 @@ class DatabaseShard {
 	/*
 	 * checks for existence of the given followingword for the given bigram
 	 * returns true if the bigram exists in the database and the given followingword
-	 * has been recorded for that bigram at least once, and false otherwise (the given
+	 * has been recorded for that bigram at least once, and false otherwise (ie the given
 	 * followingword has never been used for the given bigram, or the given bigram has 
 	 * never been used)
 	 */
@@ -155,6 +177,11 @@ class DatabaseShard {
 		return followingWordSet.contains(followingWord);
 	}
 	
+	/*
+	 * same as contains(Bigram,String), but checks if the given string has been used
+	 * for the given bigram at least the given number of times
+	 * contains(Bigram,String) is equivalent to contains(Bigram,String,1)
+	 */
 	boolean contains(Bigram bigram, String followingWord, int count) {
 		FollowingWordSet followingWordSet = this.database.get(bigram);
 		if(followingWordSet == null) return false;
@@ -163,6 +190,7 @@ class DatabaseShard {
 	}
 	
 	/*
+	 * removes a single occurrence of the given followingWord for the given bigram
 	 * similar to addFollowingWord(Bigram, String), there are concurrency problems
 	 * here if this isnt done in an atomic context
 	 * note this method should only be called if the given followingWord is known 
@@ -173,7 +201,7 @@ class DatabaseShard {
 	void removeFollowingWord(Bigram bigram, String followingWord) throws FollowingWordRemovalException {
 		FollowingWordSet followingWordSet = this.database.get(bigram);
 		if(followingWordSet == null) throw new FollowingWordRemovalException("illegal attempt to remove word '" 
-				+ followingWord + "' from fws for bigram " + bigram + " in " + this + ": fws not found for given bigram");
+				+ followingWord + "' from fws for bigram " + bigram + " in " + this + ": no fws not found for given bigram");
 		
 		if(followingWordSet instanceof TinyFollowingWordSet) {
 			this.database.put(bigram, TinyFollowingWordSet.remove((TinyFollowingWordSet)followingWordSet, followingWord));
@@ -210,10 +238,7 @@ class DatabaseShard {
 	
 	/*
 	 * used to save shard to disk
-	 * defers to either saving as raw text or serializing 
-	 * consider implementing some other solution for serializing here (protobuf?)
-	 * should be fine for now though since this project is entirely localized
-	 * returns true if save successful, false if exception encountered
+	 * serializing is done via fast-serialization library. json currently not supported
 	 */
 	void save(SaveType saveType) {
 		if(saveType == SaveType.JSON) {
@@ -251,8 +276,8 @@ class DatabaseShard {
 			try {
 				this.loadFromObject();
 			} catch (FileNotFoundException e) {
-				//logger.info("couldn't load (deserialize) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
-			} catch (Exception e) {
+//				logger.info("couldn't load (deserialize) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
+			} catch (IOException e) {
 				logger.error("couldn't load (deserialize) " + this.toString() + ": " + e.getLocalizedMessage());
 				e.printStackTrace();
 			} 
@@ -275,6 +300,7 @@ class DatabaseShard {
 		try {
 			fileOutputStream = new FileOutputStream(this.path.toString());
 		} catch (FileNotFoundException ex) {
+			//probably first load and parent directory doesn't exist. create it and try again
 			this.path.toFile().getParentFile().mkdirs();
 			fileOutputStream = new FileOutputStream(this.path.toString());
 		}
@@ -285,23 +311,25 @@ class DatabaseShard {
 	}
 
 	void loadFromObject() throws IOException {
-		if(!this.path.toFile().exists()) return;
 		try (FileInputStream fileInputStream = new FileInputStream(this.path.toString())) {
 			FSTObjectInput in = CONF.getObjectInput(fileInputStream);
 			try {
 				this.database = (DatabaseWrapper) in.readObject(DatabaseWrapper.class);
 			} catch (Exception e) {
+				//have to do this, because FSTObjectInput.readObject(Class) throws Exception...
 				throw new IOException(e);
 			}
+		} catch (FileNotFoundException ex) {
+			//nothing to load, probably first run. do nothing
 		}
 	}
 	
 	/*
 	 * obtain the path for the file representing this shard on the local disk
 	 * paths are determined by the shard's key, and are separated into a new 
-	 * directory for each character in the key
-	 * eg shard with key "IM~CUTE" has path:
-	 * \<parent database id>\<database dir string>\I\M\~\C\U\T\E\IM~CUTE.database
+	 * directory for each character in the key up to MarkovDatabaseImpl.DIRECTORIES_PER_KEY_WORD
+	 * eg shard with key "IM~CUTE", DIRECTORIES_PER_KEY_WORD=2 has path:
+	 * \<parent database id>\<database dir string>\I\M\~\C\U\IM~CUTE.database
 	 * (where <database dir string> is MarkovDatabaseImpl.DATABASE_DIRECTORY_NAME)
 	 * note that all possible characters in a key are regular uppercase ascii english
 	 * alphabet characters (A-Z) to represent that letter, 0 to represent regular ascii
@@ -350,18 +378,6 @@ class DatabaseShard {
 		return builder.toString();
 	}
 	
-	String toStringFull() {
-		StringBuilder builder = new StringBuilder();
-		builder.append("DatabaseShard [parentDatabaseId=");
-		builder.append(parentDatabaseId);
-		builder.append(", key=");
-		builder.append(key);
-		builder.append(", words=");
-		builder.append(this.database);
-		builder.append("]");
-		return builder.toString();
-	}
-	
 	/*
 	 * more human readable toString() basically
 	 * maybe this should just be that
@@ -383,12 +399,9 @@ class DatabaseShard {
 		return sb.toString();
 	}
 	
-	//TODO change this to use streams
-	void writeDatabaseStringToFile(String filePath) throws IOException {
-		Path path = Paths.get(filePath);
-		StringBuilder sb = new StringBuilder();
-		int count=0;
+	void writeDatabaseStringToOutput(BufferedWriter output) throws IOException {
 		for(Map.Entry<Bigram, FollowingWordSet> bigramEntry : this.database.entrySet()) {
+			StringBuilder sb = new StringBuilder();
 			sb.append("(");
 			sb.append(bigramEntry.getKey().getWord1());
 			sb.append(", ");
@@ -398,14 +411,9 @@ class DatabaseShard {
 			sb.append(bigramEntry.getValue().size());
 			sb.append(", ");
 			sb.append(bigramEntry.getValue().toStringPlain());
-			sb.append("}\r\n");
-			count++;
-			if(count >= 1000) {
-				Files.write(path, sb.toString().getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
-				sb = new StringBuilder();
-				count = 0;
-			}
+			sb.append("}");
+			output.append(sb.toString());
+			output.newLine();
 		}
-		Files.write(path, sb.toString().getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
 	}
 }

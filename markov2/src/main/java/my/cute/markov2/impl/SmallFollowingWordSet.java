@@ -10,6 +10,16 @@ import java.util.List;
 import org.nustaq.serialization.FSTObjectOutput;
 import org.nustaq.serialization.annotations.Flat;
 
+/*
+ * FollowingWordSet implementation used for less commonly used bigrams
+ * set is maintained as a simple arraylist and each time a word is used it's
+ * added to the list. this is a very lightweight implementation for lists
+ * with few repeated words - as the set grows words tend to be repeated more
+ * frequently, so LargeFollowingWordSet is used in that case
+ * due to the backing arraylist, getRandomWeightedWord() is O(1) and remove()
+ * and contains() are O(n), though the size limitations of this class mean 
+ * that this shouldnt really be a concern
+ */
 @Flat
 class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<String> {
 	
@@ -29,7 +39,6 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 		this.bigram = bigram;
 		this.parentDatabaseId = id;
 		this.addWord(firstWord);
-		
 	}
 	
 	SmallFollowingWordSet(List<String> list, Bigram bigram, String id) {
@@ -62,7 +71,7 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 	}
 	
 	/*
-	 * O(n) for this implementation of FollowingWordSet. use sparingly
+	 * O(n) for this implementation of FollowingWordSet
 	 */
 	@Override
 	public boolean contains(String followingWord) {
@@ -79,7 +88,7 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 	}
 
 	/*
-	 * O(n) for this implementation of FollowingWordSet. use sparingly
+	 * O(n) for this implementation of FollowingWordSet
 	 */
 	@Override
 	public boolean remove(String followingWord) {

@@ -1,5 +1,6 @@
 package my.cute.markov2.impl;
 
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
 import java.util.Map.Entry;
@@ -19,21 +20,58 @@ import com.github.benmanes.caffeine.cache.RemovalCause;
 import my.cute.markov2.exceptions.FollowingWordRemovalException;
 import my.cute.markov2.exceptions.UncheckedFollowingWordRemovalException;
 
+/*
+ * class for caching and retrieving databaseshards
+ * to reduce memory consumption as much as possible most shards are
+ * kept on disk and out of heap most of the time. this class abstracts
+ * retrieving shards in a simple and efficient way
+ * uses Caffeine library for cache
+ */
 class ShardCache {
 	
 	@SuppressWarnings("unused")
 	private static final Logger logger = LoggerFactory.getLogger(ShardCache.class);
 	
 	private final String id;
+	/*
+	 * the actual cache object, via caffeine
+	 */
 	private final LoadingCache<String, DatabaseShard> cache;
+	/*
+	 * cache capacity. used to control when entries are evicted from the cache
+	 * higher capacity means more objects are kept in memory at once
+	 */
 	private final int capacity;
 	private final SaveType saveType;
 	private final ShardLoader shardLoader;
+	/*
+	 * because the start shard is used so much more often than every other shard
+	 * (every line will contain exactly one start token), the start shard is kept
+	 * in memory separate from the cache at all times
+	 */
 	private final StartDatabaseShard startShard;
+	/*
+	 * used to give the user specific control over when the cache's maintenance 
+	 * cycle is activated. generally, caffeine caches do maintenance automatically
+	 * at certain intervals whenever the cache is modified; these fields won't affect
+	 * that automatic maintenance but will enforce that the cache's maintenance is 
+	 * activated at specific user-defined intervals, which can be useful
+	 * the cache automatically evicts entries according to some rules and maintenance 
+	 * is what takes care of evicted entries, so enforcing frequent cleanup can ensure
+	 * the cache more strictly follows size rules at the cost of speed
+	 */
 	private final int cleanupThreshold;
 	private final boolean fixedCleanup;
+	/*
+	 * used to synchronize save operations. like ShardLoader.loadLock, i think this
+	 * is probably important around database backup save/load operations in a 
+	 * concurrent environment
+	 */
 	private final ReentrantLock saveLock = new ReentrantLock();
 	
+	/*
+	 * used for fixed cleanup. counts operations until next cleanup
+	 */
 	private int cleanCount = 0;
 	
 	ShardCache(String i, int c, String path, SaveType save, Executor executorService, int cleanupThreshold) {
@@ -66,6 +104,7 @@ class ShardCache {
 				//CacheLoader rule
 				//i seriously think method reference notation is way less readable?
 				.build(key -> this.createDatabaseShard(key));
+		//note start shard is NOT loaded. call load() before use
 		this.startShard = this.shardLoader.createStartShard();
 	}
 	
@@ -172,6 +211,9 @@ class ShardCache {
 		return this.shardLoader.createAndLoadShard(key);
 	}
 	
+	/*
+	 * for use at eg shutdown, backup creation
+	 */
 	void save() {
 		this.cache.cleanUp();
 		synchronized(this.saveLock) {
@@ -182,8 +224,11 @@ class ShardCache {
 		}
 	}
 	
-	public void writeDatabaseShardString(File file, String path) throws IOException {
-		this.shardLoader.getShardFromFile(file).writeDatabaseStringToFile(path);
+	/*
+	 * used for MarkovDatabaseImpl.exportToTextFile()
+	 */
+	void writeDatabaseShardString(BufferedWriter writer, File file) throws IOException {
+		this.shardLoader.getShardFromFile(file).writeDatabaseStringToOutput(writer);
 	}
 	
 	private void checkFixedCleanup() {

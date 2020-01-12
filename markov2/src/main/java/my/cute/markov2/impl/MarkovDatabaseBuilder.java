@@ -5,11 +5,17 @@ import java.util.concurrent.ForkJoinPool;
 
 import my.cute.markov2.MarkovDatabase;
 
+/*
+ * entry point from outside this api
+ * used to construct a MarkovDatabase object
+ */
 public final class MarkovDatabaseBuilder {
 
 	/*
 	 * unique identifier for this database
-	 * if it changes, database will create a new directory and not load old versions
+	 * changing id eg in between runs will effectively create a new database, 
+	 * since id is used in directory file structure as well as identification
+	 * in program
 	 */
 	private final String id;
 	/*
@@ -27,10 +33,7 @@ public final class MarkovDatabaseBuilder {
 	 * a negative size (default) will impose no size restriction on cache
 	 */
 	private int shardCacheSize = -1;
-	/*
-	 * method of serialization. TODO remove this and just use serialize, its quicker than json
-	 */
-	private SaveType saveType = SaveType.SERIALIZE;
+
 	/*
 	 * specifies Executor used by the cache for additional tasks (eg maintenance)
 	 * passing in null will cause the database to execute all tasks in the current thread,
@@ -50,11 +53,6 @@ public final class MarkovDatabaseBuilder {
 		this.id = id;
 		this.parentPath = parentPath;
 		
-	}
-	
-	public MarkovDatabaseBuilder saveType(SaveType saveType) {
-		this.saveType = saveType;
-		return this;
 	}
 	
 	public MarkovDatabaseBuilder shardCacheSize(int shardCacheSize) {
@@ -83,10 +81,6 @@ public final class MarkovDatabaseBuilder {
 
 	public String getParentPath() {
 		return parentPath;
-	}
-
-	public SaveType getSaveType() {
-		return saveType;
 	}
 	
 	public int getShardCacheSize() {
