@@ -342,7 +342,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 					logger.error("successfully recovered backup " + backupName + " in " + this + ". backup creation aborted, "
 							+ "rethrowing exception");
 				}
-				throw ex;
+				throw new IOException(ex);
 			}
 		}
 		
@@ -410,7 +410,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 					logger.error(this + "-load-" + backupName + ": successfully unpacked temp backup. deleting temp backup");
 					Files.delete(tempBackup);
 					logger.error(this + "-load-" + backupName + ": temp backup deleted. aborting backup load");
-					throw ex;
+					throw new IOException(ex);
 				}
 				logger.info(this + "-load-" + backupName + ": finished unpacking backup. deleting temp backup");
 			}
