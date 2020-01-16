@@ -14,8 +14,10 @@ public interface MarkovDatabase {
 	 * the database will reflect the use of the given words in given order
 	 * words need to be nonempty, nonwhitespace
 	 * words will be intern'd with weak references via guava interner
+	 * returns true if the list of words was processed, false otherwise
+	 * (may not want to process in some cases, eg empty list)
 	 */
-	public void processLine(List<String> words);
+	public boolean processLine(List<String> words);
 	
 	/*
 	 * generates a message from the database with a weighted random starting word

@@ -85,10 +85,10 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	@Override
-	public void processLine(List<String> words) {
+	public boolean processLine(List<String> words) {
 		if(words.size() == 0) {
 			logger.warn("attempt to process empty word array in " + this.toString());
-			return;
+			return false;
 		}
 		
 		//at least one element is present by above
@@ -102,6 +102,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 			wordIndex++;
 		}
 		this.addFollowingWordForBigram(currentBigram, END_TOKEN);
+		return true;
 	}
 	
 	private void addFollowingWordForBigram(Bigram bigram, String followingWord) {
