@@ -24,7 +24,6 @@ import org.slf4j.LoggerFactory;
  */
 class StartDatabaseShard extends DatabaseShard {
 
-	@SuppressWarnings("unused")
 	private static final Logger logger = LoggerFactory.getLogger(StartDatabaseShard.class);
 	private static transient final Random RANDOM = new Random();
 	
