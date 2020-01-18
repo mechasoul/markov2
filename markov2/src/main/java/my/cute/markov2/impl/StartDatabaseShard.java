@@ -17,6 +17,8 @@ import org.nustaq.serialization.FSTObjectOutput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import my.cute.markov2.exceptions.FollowingWordRemovalException;
+
 /*
  * unique databaseshard that holds all bigrams where the first word is
  * the start-of-line indicator. requires some extra stuff to efficiently
@@ -40,10 +42,16 @@ class StartDatabaseShard extends DatabaseShard {
 	}
 	
 	@Override
-	public boolean addFollowingWord(Bigram bigram, String followingWord) {
+	boolean addFollowingWord(Bigram bigram, String followingWord) {
 		boolean result = super.addFollowingWord(bigram, followingWord);
 		this.totalCount++;
 		return result;
+	}
+	
+	@Override
+	void removeFollowingWord(Bigram bigram, String followingWord) throws FollowingWordRemovalException {
+		super.removeFollowingWord(bigram, followingWord);
+		this.totalCount--;
 	}
 	
 	/*
