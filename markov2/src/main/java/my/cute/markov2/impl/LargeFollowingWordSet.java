@@ -2,9 +2,13 @@ package my.cute.markov2.impl;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.List;
+
 import org.nustaq.serialization.FSTObjectOutput;
 import org.nustaq.serialization.annotations.Flat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import gnu.trove.TCollections;
 import gnu.trove.iterator.TObjectIntIterator;
@@ -30,8 +34,9 @@ import gnu.trove.map.hash.TObjectIntHashMap;
  * O(n) time for getRandomWeightedWord()
  */
 @Flat
-public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
+class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 	
+	private static final Logger logger = LoggerFactory.getLogger(LargeFollowingWordSet.class);
 	private static final long serialVersionUID = 1L;
 	/*
 	 * actual data of the set - map of words to their frequencies
@@ -58,7 +63,6 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 		synchronized(set.getWords()) {
 			for(String word : set) {
 				this.addWord(word);
-				this.incrementTotal();
 			}
 		}
 		this.bigram = set.getBigram();
@@ -86,7 +90,7 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 	 */
 	@Override
 	public String getRandomWeightedWord() {
-		String chosenWord = "hello";
+		String chosenWord = null;
 		int count = RANDOM.nextInt(this.totalWordCount);
 		//need to synchronize when iterating over THashMap
 		synchronized(this.words) {
@@ -100,7 +104,12 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 				}
 			}
 		}
-		//should never return default string, since sum of word count over all entries should equal totalWordCount
+		//should never be null, since sum of word count over all entries should equal totalWordCount
+		if(chosenWord == null) {
+			logger.error(this + ": getRandomWeightedWord() returned null; totalWordCount probably wrong! "
+					+ "totalWordCount: " + this.totalWordCount + ", words=" + this.words.toString());
+			chosenWord = "hello";
+		}
 		return chosenWord;
 	}
 	
@@ -198,17 +207,18 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 		return true;
 	}
 
+	
 	@Override
 	public String toString() {
 		StringBuilder builder = new StringBuilder();
-		builder.append("LargeFollowingWordSet [words=");
-		builder.append(words);
-		builder.append(", totalWordCount=");
-		builder.append(totalWordCount);
+		builder.append("LargeFollowingWordSet [bigram=");
+		builder.append(bigram);
+		builder.append(", parentDatabaseId=");
+		builder.append(parentDatabaseId);
 		builder.append("]");
 		return builder.toString();
 	}
-	
+
 	@Override
 	public String toStringPlain() {
 		return words.toString();
@@ -235,9 +245,16 @@ public class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 
 	@Override
 	public List<String> getWords() {
-		throw new UnsupportedOperationException("can't get wordlist from LargeFollowingWordSet");
-	}
-
-	
+		List<String> wordsAsList = new ArrayList<String>(this.totalWordCount);
+		synchronized(this.words) {
+			for(TObjectIntIterator<String> iterator = this.words.iterator(); iterator.hasNext();) {
+				iterator.advance();
+				for(int i=0; i < iterator.value(); i++) {
+					wordsAsList.add(iterator.key());
+				}
+			}
+		}
+		return wordsAsList;
+	}	
 
 }

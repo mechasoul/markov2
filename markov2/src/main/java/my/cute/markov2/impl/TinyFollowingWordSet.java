@@ -65,6 +65,11 @@ class TinyFollowingWordSet implements FollowingWordSet, Serializable, Iterable<S
 				ImmutableList.<String>builderWithExpectedSize(words.size()).addAll(words).build()));
 	}
 	
+	public static TinyFollowingWordSet of(FollowingWordSet existing) {
+		return Pool.INSTANCE.intern(new TinyFollowingWordSet(
+				ImmutableList.<String>builderWithExpectedSize(existing.size()).addAll(existing.getWords()).build()));
+	}
+	
 	/*
 	 * note that this doesnt actually modify the passed in set but builds a new one
 	 */

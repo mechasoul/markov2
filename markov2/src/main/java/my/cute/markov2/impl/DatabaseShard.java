@@ -190,6 +190,9 @@ class DatabaseShard {
 	}
 	
 	/*
+	 * TODO if remove below a set size threshold, replace
+	 * eg if remove when at 24 items, switch from largefws to smallfws
+	 * 
 	 * removes a single occurrence of the given followingWord for the given bigram
 	 * similar to addFollowingWord(Bigram, String), there are concurrency problems
 	 * here if this isnt done in an atomic context
@@ -214,16 +217,21 @@ class DatabaseShard {
 			if(newSet.isEmpty()) {
 				this.remove(bigram);
 			}
-		} else {
-			if(followingWordSet.remove(followingWord)) {
-				if(followingWordSet.isEmpty()) {
-					this.remove(bigram);
-				}
-			} else {
-				//remove was unsuccessful, so structure of shard is probably not what was expected
-				throw new FollowingWordRemovalException("illegal attempt to remove word '" + followingWord + "' from fws for bigram "
-						+ bigram + " in " + this + ": word not found");
+		} else if(followingWordSet.remove(followingWord)) {
+			//small or large followingwordset. remove word and change implementation if necessary
+
+			if(followingWordSet instanceof SmallFollowingWordSet && followingWordSet.size() < SMALL_WORD_SET_THRESHOLD) {
+				this.database.put(bigram, TinyFollowingWordSet.of(followingWordSet));
 			}
+			else if(followingWordSet instanceof LargeFollowingWordSet && followingWordSet.size() < LARGE_WORD_SET_THRESHOLD) {
+				this.database.put(bigram, new SmallFollowingWordSet(followingWordSet));
+			}
+			//set was small or large, so set size was at least 4, so set can't be empty
+			//& therefore no need to possibly remove entry for bigram from database
+		} else {
+			//remove was unsuccessful, so structure of shard is probably not what was expected
+			throw new FollowingWordRemovalException("illegal attempt to remove word '" + followingWord + "' from fws for bigram "
+					+ bigram + " in " + this + ": word not found");
 		}
 		
 	}

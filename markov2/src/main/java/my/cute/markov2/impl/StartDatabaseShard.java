@@ -54,7 +54,7 @@ class StartDatabaseShard extends DatabaseShard {
 	 * throws illegalargumentexception if totalCount == 0 (empty database)
 	 */
 	String getRandomWeightedStartWord() throws IllegalArgumentException {
-		String word = "hello";
+		String word = null;
 		int count = RANDOM.nextInt(this.totalCount);
 		for(Map.Entry<Bigram, FollowingWordSet> entry : this.database.entrySet()) {
 			if(count < entry.getValue().size()) {
@@ -69,6 +69,11 @@ class StartDatabaseShard extends DatabaseShard {
 		 * so the only way this returns default string "hello" is if db is empty, in
 		 * which case illegalargumentexception should have ben thrown
 		 */
+		if(word == null) {
+			logger.error(this + ": getRandomWeightedStartWord() returned null; totalCount probably wrong! "
+					+ "totalCount: " + this.totalCount);
+			word = "hello";
+		}
 		return word;
 	}
 	
