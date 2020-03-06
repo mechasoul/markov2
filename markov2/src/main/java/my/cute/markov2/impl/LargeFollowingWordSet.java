@@ -2,7 +2,9 @@ package my.cute.markov2.impl;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import org.nustaq.serialization.FSTObjectOutput;
@@ -221,7 +223,30 @@ class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 
 	@Override
 	public String toStringPlain() {
-		return words.toString();
+		List<SimpleImmutableEntry<String, Integer>> entries = new ArrayList<>(this.words.size());
+		synchronized(this.words) {
+			this.words.forEachEntry((word, count) ->
+			{
+				entries.add(new SimpleImmutableEntry<>(word, count));
+				return true;
+			});
+		}
+		
+		Collections.sort(entries, ((first, second) -> 
+		{
+			return first.getKey().compareTo(second.getKey());
+		}));
+		
+		StringBuilder sb = new StringBuilder("{");
+		boolean first = true;
+		for(SimpleImmutableEntry<String, Integer> entry : entries) {
+			if(first) first = false;
+			else sb.append(",");
+			
+			sb.append(entry.getKey()).append("=").append(entry.getValue());
+		}
+		sb.append("}");
+		return sb.toString();
 	}
 
 	@Override

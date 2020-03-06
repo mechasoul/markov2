@@ -101,6 +101,12 @@ public interface MarkovDatabase {
 	public boolean deleteBackup(String backupName) throws IOException;
 	
 	/*
+	 * deletes all contents of the database, inclding files on disk 
+	 * doesn't remove backups
+	 */
+	public void clear() throws IOException;
+	
+	/*
 	 * exports database contents to an easily human-readable format
 	 * time intensive for larger databases
 	 * should really be separately threaded

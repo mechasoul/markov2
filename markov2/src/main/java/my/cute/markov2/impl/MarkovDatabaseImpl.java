@@ -16,11 +16,12 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
@@ -43,6 +44,16 @@ import my.cute.markov2.exceptions.FollowingWordRemovalException;
 /*
  * implementation of MarkovDatabase
  * prioritizes memory over speed
+ * 
+ * TODO I don't really like the general way i've decided to deal with concurrency problems
+ * i think i'm over-synchronizing because i don't fully understand how caffeine cache works
+ * i'd like to eliminate the addFollowingWord(), removeFollowingWord(), etc methods from
+ * ShardCache and just call them directly on the shard via like
+ * this.shardCache.get(bigram).addFollowingWord(...)
+ * but need to figure out where the problems are stemming from in order to do that
+ * (problems arent even a big deal it's just a very rare instance of a word not being
+ * added when it should, etc. but it's a big enough deal to bug me)
+ * also see DatabaseShard.addFollowingWord(Bigram, String)
  */
 public class MarkovDatabaseImpl implements MarkovDatabase {
 	
@@ -87,7 +98,6 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	@Override
 	public boolean processLine(List<String> words) {
 		if(words.size() == 0) {
-			logger.warn("attempt to process empty word array in " + this.toString());
 			return false;
 		}
 		
@@ -194,19 +204,20 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	
 	@Override
 	public String generateLine(String startingWord) {
-		this.shardCache.cleanUp();
 		StringBuilder sb = new StringBuilder();
 		sb.append(startingWord);
 		int wordCount = 1;
 		Bigram currentBigram = new Bigram(START_TOKEN, startingWord);
-		String nextWord = this.getRandomWeightedNextWord(currentBigram);
-		while(!nextWord.equals(END_TOKEN) && wordCount < MAX_WORDS_PER_LINE) {
-			sb.append(" ");
-			sb.append(nextWord);
-			wordCount++;
-			
-			currentBigram = new Bigram(currentBigram.getWord2(), nextWord);
-			nextWord = this.getRandomWeightedNextWord(currentBigram);
+		synchronized(this.getLoadLock()) {
+			String nextWord = this.getRandomWeightedNextWord(currentBigram);
+			while(!nextWord.equals(END_TOKEN) && wordCount < MAX_WORDS_PER_LINE) {
+				sb.append(" ");
+				sb.append(nextWord);
+				wordCount++;
+				
+				currentBigram = new Bigram(currentBigram.getWord2(), nextWord);
+				nextWord = this.getRandomWeightedNextWord(currentBigram);
+			}
 		}
 		
 		return sb.toString();
@@ -388,6 +399,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		}
 		logger.info("beginning loading backup of database " + this + " (from backup '" + backupName + "')");
 		//first save a backup of current database state so we can try to restore it if load fails
+		this.shardCache.saveAndClear();
 		String tempBackupName = new SimpleDateFormat("yyyyMMdd-HHmmss").format(Calendar.getInstance().getTime()) + "_tmp";
 		logger.info(this + "-load-" + backupName + ": saving temp backup '" + tempBackupName + "' for recovery");
 		Path tempBackup = this.saveBackup(tempBackupName);
@@ -415,6 +427,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 				}
 				logger.info(this + "-load-" + backupName + ": finished unpacking backup. deleting temp backup");
 			}
+			this.load();
 		}
 		Files.delete(tempBackup);
 		logger.info(this + "-load-" + backupName + ": temp backup deleted. backup successfully loaded");
@@ -465,11 +478,21 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 				+ File.separator + this.id + "_" + backupName + ".zip");
 	}
 	
-	private ReentrantLock getSaveLock() {
+	@Override
+	public void clear() throws IOException {
+		logger.info(this + ": clearing database");
+		this.shardCache.saveAndClear();
+		this.shardCache.getStartShard().clear();
+		FileUtils.deleteDirectory(new File(this.path + File.separator + DATABASE_DIRECTORY_NAME));
+		this.load();
+		logger.info(this + ": finished clearing database");
+	}
+	
+	private Object getSaveLock() {
 		return this.shardCache.getSaveLock();
 	}
 	
-	private ReentrantLock getLoadLock() {
+	private Object getLoadLock() {
 		return this.shardCache.getLoadLock();
 	}
 
@@ -484,7 +507,12 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		String timeStamp = new SimpleDateFormat("yyyyMMdd-HHmmss").format(Calendar.getInstance().getTime());
 		String path = this.path + File.separator + this.id + "_" + timeStamp + ".txt";
 		try (BufferedWriter output = Files.newBufferedWriter(Paths.get(path), StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
-			for(File file : FileUtils.listFiles(new File(this.path), FileFilterUtils.suffixFileFilter(".database"), TrueFileFilter.TRUE)) {
+			List<File> files = new ArrayList<>(FileUtils.listFiles(new File(this.path), FileFilterUtils.suffixFileFilter(".database"), TrueFileFilter.TRUE));
+			Collections.sort(files, (first, second) ->
+			{
+				return first.toString().compareTo(second.toString());
+			});
+			for(File file : files) {
 				try {
 					this.shardCache.writeDatabaseShardString(output, file);
 				} catch (IOException e) {
@@ -525,5 +553,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		sb.append(this.id);
 		return sb.toString();
 	}
+
+	
 	
 }

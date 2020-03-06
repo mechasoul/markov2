@@ -14,6 +14,10 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -408,7 +412,9 @@ class DatabaseShard {
 	}
 	
 	void writeDatabaseStringToOutput(BufferedWriter output) throws IOException {
-		for(Map.Entry<Bigram, FollowingWordSet> bigramEntry : this.database.entrySet()) {
+		List<Map.Entry<Bigram, FollowingWordSet>> entries = new ArrayList<>(this.database.entrySet()); 
+		Collections.sort(entries, Comparator.comparing(entry -> entry.getKey()));
+		for(Map.Entry<Bigram, FollowingWordSet> bigramEntry : entries) {
 			StringBuilder sb = new StringBuilder();
 			sb.append("(");
 			sb.append(bigramEntry.getKey().getWord1());

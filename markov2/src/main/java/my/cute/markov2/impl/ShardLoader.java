@@ -1,7 +1,6 @@
 package my.cute.markov2.impl;
 
 import java.io.File;
-import java.util.concurrent.locks.ReentrantLock;
 
 /*
  * responsible for loading databaseshards from disk, so it can pass them
@@ -27,7 +26,7 @@ public final class ShardLoader {
 	 * could be inconsistent if loads/saves happen during backup load/save)
 	 * unsure if this is actually necessary with current implementation...
 	 */
-	private final ReentrantLock loadLock = new ReentrantLock();
+	private final Object loadLock = new Object();
 	
 	ShardLoader(String i, String p, SaveType save) {
 		this.id = i;
@@ -49,9 +48,7 @@ public final class ShardLoader {
 	 */
 	DatabaseShard createAndLoadShard(String key) {
 		DatabaseShard shard = new DatabaseShard(this.id, key, this.path);
-		synchronized(this.loadLock) {
-			shard.load(this.saveType);
-		}
+		shard.load(this.saveType);
 		return shard;
 	}
 	
@@ -90,7 +87,7 @@ public final class ShardLoader {
 		}
 	}
 	
-	ReentrantLock getLoadLock() {
+	Object getLoadLock() {
 		return this.loadLock;
 	}
 	

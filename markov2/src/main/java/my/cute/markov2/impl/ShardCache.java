@@ -5,7 +5,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Map.Entry;
 import java.util.concurrent.Executor;
-import java.util.concurrent.locks.ReentrantLock;
 
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -67,7 +66,7 @@ class ShardCache {
 	 * is probably important around database backup save/load operations in a 
 	 * concurrent environment
 	 */
-	private final ReentrantLock saveLock = new ReentrantLock();
+	private final Object saveLock = new Object();
 	
 	/*
 	 * used for fixed cleanup. counts operations until next cleanup
@@ -103,7 +102,12 @@ class ShardCache {
 				})
 				//CacheLoader rule
 				//i seriously think method reference notation is way less readable?
-				.build(key -> this.createDatabaseShard(key));
+				.build(key -> 
+				{
+					synchronized(this.getLoadLock()) {
+						return this.createDatabaseShard(key);
+					}
+				});
 		//note start shard is NOT loaded. call load() before use
 		this.startShard = this.shardLoader.createStartShard();
 	}
@@ -131,13 +135,15 @@ class ShardCache {
 			this.startShard.addFollowingWord(bigram, followingWord);
 		} else {
 			//compute is always atomic
-			this.cache.asMap().compute(key, (shardKey, shard) ->
-			{
-				//i dont like that i'm duplicating the cacheloader rule here
-				if(shard == null) shard = createDatabaseShard(shardKey);
-				shard.addFollowingWord(bigram, followingWord);
-				return shard;
-			});
+			synchronized(this.getLoadLock()) {
+				this.cache.asMap().compute(key, (shardKey, shard) ->
+				{
+					//i dont like that i'm duplicating the cacheloader rule here
+					if(shard == null) shard = createDatabaseShard(shardKey);
+					shard.addFollowingWord(bigram, followingWord);
+					return shard;
+				});
+			}
 		}
 		
 		this.checkFixedCleanup();
@@ -241,20 +247,41 @@ class ShardCache {
 	}
 	
 	void cleanUp() {
-		this.cache.cleanUp();
+		synchronized(this.getLoadLock()) {
+			this.cache.invalidateAll();
+			this.cache.cleanUp();
+		}
+	}
+	
+	void saveAndClear() {
+		synchronized(this.getLoadLock()) {
+			/* deadlock here if saveLock is owned */
+			this.cache.invalidateAll();
+			/* invalidateAll() requires cache's evictionLock, which could be owned by
+			 * other thread running maintenance / trying to evict and save cache entries,
+			 * which will own evictionLock but then block waiting for saveLock when 
+			 * it enters the CacheWriter's delete() method */
+			this.cache.cleanUp();
+			this.cache.asMap().clear();
+			synchronized(this.getSaveLock()) {
+				this.startShard.save();
+			}
+		}
 	}
 	
 	/*
 	 * prepare cache for use
 	 */
 	void load() {
-		this.shardLoader.loadStartShard(this.startShard);
+		synchronized(this.getLoadLock()) {
+			this.shardLoader.loadStartShard(this.startShard);
+		}
 	}
 	
-	ReentrantLock getSaveLock() {
+	Object getSaveLock() {
 		return this.saveLock;
 	}
-	ReentrantLock getLoadLock() {
+	Object getLoadLock() {
 		return this.shardLoader.getLoadLock();
 	}
 	

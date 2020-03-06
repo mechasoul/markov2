@@ -84,6 +84,11 @@ class StartDatabaseShard extends DatabaseShard {
 		return word;
 	}
 	
+	void clear() {
+		this.database = new DatabaseWrapper(this.key, this.parentDatabaseId);
+		this.totalCount = 0;
+	}
+	
 	@Override
 	void saveAsText() throws IOException {
 		StringBuilder sb = new StringBuilder(GSON.toJson(this.database, DATABASE_TYPE));

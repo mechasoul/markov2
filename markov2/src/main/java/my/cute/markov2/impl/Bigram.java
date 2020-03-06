@@ -11,7 +11,7 @@ import org.nustaq.serialization.FSTObjectOutput;
 import org.nustaq.serialization.annotations.Flat;
 
 @Flat
-public class Bigram implements Serializable {
+public class Bigram implements Serializable, Comparable<Bigram> {
 	
 	static class Serializer extends FSTBasicObjectSerializer {
 
@@ -62,7 +62,16 @@ public class Bigram implements Serializable {
 		return this.word2;
 	}
 	
-	
+	@Override
+	public int compareTo(Bigram o) {
+		int val = this.getWord1().compareTo(o.getWord1());
+		if(val != 0) {
+			return val;
+		}
+		else {
+			return this.getWord2().compareTo(o.getWord2());
+		}
+	}
 	
 	@Override
 	public int hashCode() {
