@@ -196,8 +196,8 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	public String generateLine() {
 		try {
 			return this.generateLine(this.getStartShard().getRandomWeightedStartWord());
-		} catch (IllegalArgumentException ex) {
-			logger.warn("illegal argument exception thrown in line generation (empty database?) in db " + this);
+		} catch (IllegalArgumentException e) {
+			logger.warn(this + ": illegal argument exception thrown in line generation (empty database?): " + e, e);
 			return "??";
 		}
 	}
@@ -233,7 +233,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 			 * so this indicates something has gone wrong (eg some words not processed from a line)
 			 * add a general following word set by having the given bigram end a message
 			 */
-			logger.warn(this + " couldn't find following word for " + bigram + " (ex: " + ex.getLocalizedMessage()
+			logger.warn(this + ": couldn't find following word for " + bigram + " (ex: " + ex.getLocalizedMessage()
 				+ "), constructing default FollowingWordSet w/ END_TOKEN");
 			this.addFollowingWordForBigram(bigram, END_TOKEN);
 			return END_TOKEN;
@@ -243,7 +243,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	@Override
 	public boolean contains(List<String> words) {
 		if(words.size() == 0) {
-			logger.warn("attempt to remove empty word list in " + this.toString());
+			logger.info(this + ": made contains() check for empty wordlist?");
 			return true;
 		}
 		
@@ -281,7 +281,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	public boolean removeLine(List<String> words) throws FollowingWordRemovalException {
 		
 		if(words.size() == 0) {
-			logger.warn("attempt to remove empty word list in " + this.toString());
+			logger.warn(this + ": called removeLine() with an empty word list");
 			return false;
 		}
 		
@@ -341,20 +341,20 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 					Files.delete(createdFile);
 					Files.delete(Paths.get(targetFile.toString() + ".bak"));
 				} 
-			} catch (Exception ex) {
+			} catch (Exception e) {
 				//encountered exception. attempt to recover the backup from our backup of the backup
 				//if it exists
 				if(!createdFile.equals(targetFile)) {
-					logger.error("exception encountered during backup creation for backup "
-							+ backupName + " in " + this + ": " + ex.toString());
-					logger.error("attempting to restore previously existing backup");
+					logger.warn(this + "-save-" + backupName + ": exception encountered during backup creation: " 
+							+ e.getLocalizedMessage(), e);
+					logger.warn(this + "-save-" + backupName + ": attempting to restore previously existing backup");
 					Files.deleteIfExists(targetFile);
 					Files.copy(Paths.get(targetFile.toString() + ".bak"), targetFile, StandardCopyOption.REPLACE_EXISTING);
 					Files.delete(Paths.get(targetFile.toString() + ".bak"));
-					logger.error("successfully recovered backup " + backupName + " in " + this + ". backup creation aborted, "
+					logger.warn(this + "-save-" + backupName + ": successfully recovered backup. backup creation aborted, "
 							+ "rethrowing exception");
 				}
-				throw new IOException(ex);
+				throw new IOException(e);
 			}
 		}
 		
@@ -397,7 +397,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		if(!Files.isRegularFile(targetBackup)) {
 			throw new FileNotFoundException("backup '" + backupName + "' not found for " + this);
 		}
-		logger.info("beginning loading backup of database " + this + " (from backup '" + backupName + "')");
+		logger.info(this + ": beginning loading backup '" + backupName + "'");
 		//first save a backup of current database state so we can try to restore it if load fails
 		this.shardCache.saveAndClear();
 		String tempBackupName = new SimpleDateFormat("yyyyMMdd-HHmmss").format(Calendar.getInstance().getTime()) + "_tmp";
@@ -414,16 +414,15 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 				logger.info(this + "-load-" + backupName + ": finished deleting database. unpacking backup");
 				try {
 					this.unpack(targetBackup, Paths.get(databaseDirectory));
-				} catch (Exception ex) {
+				} catch (Exception e) {
 					logger.error(this + "-load-" + backupName + ": encountered exception when trying to unpack backup: "
-							+ ex.getMessage());
-					ex.printStackTrace();
+							+ e.getMessage(), e);
 					logger.error(this + "-load-" + backupName + ": attempting to load from temp backup");
 					this.unpack(tempBackup, Paths.get(databaseDirectory));
 					logger.error(this + "-load-" + backupName + ": successfully unpacked temp backup. deleting temp backup");
 					Files.delete(tempBackup);
 					logger.error(this + "-load-" + backupName + ": temp backup deleted. aborting backup load");
-					throw new IOException(ex);
+					throw new IOException(e);
 				}
 				logger.info(this + "-load-" + backupName + ": finished unpacking backup. deleting temp backup");
 			}
@@ -502,31 +501,29 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	 * like everything else, breaks if outside sources modify db files
 	 */
 	@Override
-	public void exportToTextFile() {
+	public void exportToTextFile() throws IOException {
+		logger.info(this + ": beginning export to txt file");
 		this.save();
 		String timeStamp = new SimpleDateFormat("yyyyMMdd-HHmmss").format(Calendar.getInstance().getTime());
 		String path = this.path + File.separator + this.id + "_" + timeStamp + ".txt";
-		try (BufferedWriter output = Files.newBufferedWriter(Paths.get(path), StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
-			List<File> files = new ArrayList<>(FileUtils.listFiles(new File(this.path), FileFilterUtils.suffixFileFilter(".database"), TrueFileFilter.TRUE));
+		try (BufferedWriter output = Files.newBufferedWriter(Paths.get(path), StandardCharsets.UTF_8, 
+				StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
+			/*
+			 * get all .database files in database directory, looking recursively in all
+			 * directories
+			 * also sort them (as strings by File.toString(), ie by filename)
+			 */
+			List<File> files = new ArrayList<>(FileUtils.listFiles(new File(this.path), 
+					FileFilterUtils.suffixFileFilter(".database"), TrueFileFilter.TRUE));
 			Collections.sort(files, (first, second) ->
 			{
 				return first.toString().compareTo(second.toString());
 			});
 			for(File file : files) {
-				try {
-					this.shardCache.writeDatabaseShardString(output, file);
-				} catch (IOException e) {
-					logger.error("exception in trying to export " + this.toString() + " to text file, aborting! file: ' "
-							+ file.toString() + "', exception: " + e.getLocalizedMessage());
-					e.printStackTrace();
-					break;
-				}
+				this.shardCache.writeDatabaseShardString(output, file);
 			}
-		} catch (IOException e1) {
-			logger.error("general io exception in trying to export " + this.toString() + " to text file, aborting! exception: "
-					+ e1.getLocalizedMessage());
-			e1.printStackTrace();
-		}
+		} 
+		logger.info(this + ": finished export to txt to file '" + path + "'");
 	}
 
 	@Override

@@ -111,7 +111,7 @@ public interface MarkovDatabase {
 	 * time intensive for larger databases
 	 * should really be separately threaded
 	 */
-	public void exportToTextFile();
+	public void exportToTextFile() throws IOException;
 	
 	public String getId();
 	
