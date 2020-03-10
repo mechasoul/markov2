@@ -257,15 +257,13 @@ class DatabaseShard {
 			try {
 				this.saveAsText();
 			} catch (IOException e) {
-				logger.error("couldn't save (json) " + this.toString() + ": " + e.getLocalizedMessage());
-				e.printStackTrace();
+				logger.warn(this + ": couldn't save (json)! ex: " + e.getLocalizedMessage(), e);
 			}
 		} else {
 			try {
 				this.saveAsObject();
 			} catch (IOException e) {
-				logger.error("couldn't save (serialize) " + this.toString() + ": " + e.getLocalizedMessage());
-				e.printStackTrace();
+				logger.warn(this + ": couldn't save (serialize)! ex: " + e.getLocalizedMessage(), e);
 			}
 		}
 	}
@@ -281,8 +279,8 @@ class DatabaseShard {
 			} catch (FileNotFoundException | NoSuchFileException e) {
 				//logger.info("couldn't load (json) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
 			} catch (IOException e) {
-				logger.error("couldn't load (json) " + this.toString() + ": " + e.getLocalizedMessage());
-				e.printStackTrace();
+				logger.error(this + ": fatal exception when trying to load (json)! ex: " + e.getLocalizedMessage(), e);
+				throw new RuntimeException(e);
 			}
 		} else {
 			try {
@@ -290,8 +288,8 @@ class DatabaseShard {
 			} catch (FileNotFoundException e) {
 //				logger.info("couldn't load (deserialize) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
 			} catch (IOException e) {
-				logger.error("couldn't load (deserialize) " + this.toString() + ": " + e.getLocalizedMessage());
-				e.printStackTrace();
+				logger.error(this + ": fatal exception when trying to load (deserialize)! ex: " + e.getLocalizedMessage(), e);
+				throw new RuntimeException(e);
 			} 
 		}
 	}
@@ -412,6 +410,7 @@ class DatabaseShard {
 	}
 	
 	void writeDatabaseStringToOutput(BufferedWriter output) throws IOException {
+		//sort collection of entries before printing, sorting on the bigram (word1 then word2)
 		List<Map.Entry<Bigram, FollowingWordSet>> entries = new ArrayList<>(this.database.entrySet()); 
 		Collections.sort(entries, Comparator.comparing(entry -> entry.getKey()));
 		for(Map.Entry<Bigram, FollowingWordSet> bigramEntry : entries) {

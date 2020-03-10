@@ -175,7 +175,12 @@ class SmallFollowingWordSet implements FollowingWordSet, Serializable, Iterable<
 
 	@Override
 	public String toStringPlain() {
-		return words.toString();
+		StringBuilder sb = new StringBuilder("[");
+		synchronized(this.words) {
+			sb.append(this.words.stream().sorted().reduce((first, second) -> first + ", " + second));
+		}
+		sb.append("]");
+		return sb.toString();
 	}
 
 	@Override

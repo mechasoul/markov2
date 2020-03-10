@@ -65,6 +65,7 @@ class ShardCache {
 	 * used to synchronize save operations. like ShardLoader.loadLock, i think this
 	 * is probably important around database backup save/load operations in a 
 	 * concurrent environment
+	 * should probably be a ReentrantLock or something
 	 */
 	private final Object saveLock = new Object();
 	
@@ -108,7 +109,11 @@ class ShardCache {
 						return this.createDatabaseShard(key);
 					}
 				});
-		//note start shard is NOT loaded. call load() before use
+		/* 
+		 * note start shard is NOT loaded. call load() before use
+		 * done this way so that loading can be done at user's discretion since
+		 * it may be costly, but maybe its just a pain to remember...
+		 */
 		this.startShard = this.shardLoader.createStartShard();
 	}
 	
@@ -253,6 +258,10 @@ class ShardCache {
 		}
 	}
 	
+	/*
+	 * saves all shards and empties the cache
+	 * used for eg prepping for backup or database deletion
+	 */
 	void saveAndClear() {
 		synchronized(this.getLoadLock()) {
 			/* deadlock here if saveLock is owned */

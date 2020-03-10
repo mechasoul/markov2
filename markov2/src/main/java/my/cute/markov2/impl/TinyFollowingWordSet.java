@@ -177,7 +177,7 @@ class TinyFollowingWordSet implements FollowingWordSet, Serializable, Iterable<S
 
 	@Override
 	public String toStringPlain() {
-		return this.words.toString();
+		return ImmutableList.sortedCopyOf(this.words).toString();
 	}
 
 	@Override

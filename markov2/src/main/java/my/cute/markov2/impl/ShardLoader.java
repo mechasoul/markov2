@@ -24,7 +24,8 @@ public final class ShardLoader {
 	 * used to lock loading operations to prevent concurrency issues with
 	 * potential competitors (especially backup operations, since db state
 	 * could be inconsistent if loads/saves happen during backup load/save)
-	 * unsure if this is actually necessary with current implementation...
+	 * should probably be a ReentrantLock or something but i dunno what i'm
+	 * really doing with the concurrency stuff yet
 	 */
 	private final Object loadLock = new Object();
 	
@@ -45,6 +46,8 @@ public final class ShardLoader {
 	/*
 	 * creates a shard object for the given key and loads all data from the
 	 * relevant file. shard will contain all data recorded for it in the db
+	 * 
+	 * TODO should lock on loadLock before calling load?
 	 */
 	DatabaseShard createAndLoadShard(String key) {
 		DatabaseShard shard = new DatabaseShard(this.id, key, this.path);

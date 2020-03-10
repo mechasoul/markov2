@@ -89,8 +89,7 @@ class DatabaseWrapper implements Serializable {
 						builder.add(MyStringPool.INSTANCE.intern(in.readUTF()));
 					}
 					fws = TinyFollowingWordSet.of(builder.build());
-				} else {
-					//type == FollowingWordSet.Type.LARGE
+				} else /* type == FollowingWordSet.Type.LARGE */{
 					int mapSize = in.readInt();
 					TObjectIntMap<String> map = TCollections.synchronizedMap(new TObjectIntHashMap<String>(mapSize * 5 / 4, 0.8f));
 					int totalWordCount=0;

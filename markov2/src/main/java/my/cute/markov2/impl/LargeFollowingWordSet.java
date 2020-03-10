@@ -108,7 +108,7 @@ class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 		}
 		//should never be null, since sum of word count over all entries should equal totalWordCount
 		if(chosenWord == null) {
-			logger.error(this + ": getRandomWeightedWord() returned null; totalWordCount probably wrong! "
+			logger.warn(this + ": getRandomWeightedWord() returned null; totalWordCount probably wrong! "
 					+ "totalWordCount: " + this.totalWordCount + ", words=" + this.words.toString());
 			chosenWord = "hello";
 		}
@@ -223,6 +223,10 @@ class LargeFollowingWordSet implements FollowingWordSet, Serializable {
 
 	@Override
 	public String toStringPlain() {
+		/*
+		 * add all entries to a list and sort it before printing
+		 * sort alphabetically by the followingword
+		 */
 		List<SimpleImmutableEntry<String, Integer>> entries = new ArrayList<>(this.words.size());
 		synchronized(this.words) {
 			this.words.forEachEntry((word, count) ->
