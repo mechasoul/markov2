@@ -7,6 +7,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -289,7 +290,7 @@ class DatabaseShard {
 //				logger.info("couldn't load (deserialize) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
 			} catch (IOException e) {
 				logger.error(this + ": fatal exception when trying to load (deserialize)! ex: " + e.getLocalizedMessage(), e);
-				throw new RuntimeException(e);
+				throw new UncheckedIOException(e);
 			} 
 		}
 	}
