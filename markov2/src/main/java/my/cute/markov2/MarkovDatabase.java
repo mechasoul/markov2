@@ -17,17 +17,17 @@ public interface MarkovDatabase {
 	 * returns true if the list of words was processed, false otherwise
 	 * (may not want to process in some cases, eg empty list)
 	 */
-	public boolean processLine(List<String> words);
+	public boolean processLine(List<String> words) throws IOException;
 	
 	/*
 	 * generates a message from the database with a weighted random starting word
 	 */
-	public String generateLine();
+	public String generateLine() throws IOException;
 	
 	/*
 	 * generates a message from the database with the given starting word
 	 */
-	public String generateLine(String startingWord);
+	public String generateLine(String startingWord) throws IOException;
 	
 	/*
 	 * used to check if the database has processed the given line (as a list of words)
@@ -44,7 +44,7 @@ public interface MarkovDatabase {
 	 * bigram -> word contained within the line exists in the database as many times
 	 * as it occurs in the line)
 	 */
-	public boolean contains(List<String> words);
+	public boolean contains(List<String> words) throws IOException;
 	
 	/*
 	 * removes an occurrence of the given line as a list of words
@@ -68,18 +68,18 @@ public interface MarkovDatabase {
 	 * but some bigram->word was missing when actually removed (indicating probably
 	 * some concurrency problem)
 	 */
-	public boolean removeLine(List<String> words) throws FollowingWordRemovalException;
+	public boolean removeLine(List<String> words) throws FollowingWordRemovalException, IOException;
 	
 	/*
 	 * saves database to disk
 	 */
-	public void save();
+	public void save() throws IOException;
 	
 	/*
 	 * loads database from disk
 	 * must call load() after creating database and before using it
 	 */
-	public void load();
+	public void load() throws IOException;
 	
 	/*
 	 * used to save database to a backup (.zip)
@@ -105,6 +105,13 @@ public interface MarkovDatabase {
 	 * doesn't remove backups
 	 */
 	public void clear() throws IOException;
+	
+	/*
+	 * checks database for errors
+	 * returns true if database can successfully process and generate arbitrary lines 
+	 * without throwing an exception or encountering an error, false otherwise
+	 */
+	public boolean isValid();
 	
 	/*
 	 * exports database contents to an easily human-readable format

@@ -269,28 +269,23 @@ class DatabaseShard {
 		}
 	}
 	
-	void load() {
+	void load() throws IOException {
 		this.load(DEFAULT_SAVE_TYPE);
 	}
 	
-	void load(SaveType saveType) {
+	void load(SaveType saveType) throws IOException {
 		if(saveType == SaveType.JSON) {
 			try {
 				this.loadFromText();
 			} catch (FileNotFoundException | NoSuchFileException e) {
+				//swallow these, since they shouldn't actually be a problem
 				//logger.info("couldn't load (json) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
-			} catch (IOException e) {
-				logger.error(this + ": fatal exception when trying to load (json)! ex: " + e.getLocalizedMessage(), e);
-				throw new RuntimeException(e);
-			}
+			} 
 		} else {
 			try {
 				this.loadFromObject();
 			} catch (FileNotFoundException e) {
 //				logger.info("couldn't load (deserialize) " + this.toString() + ", file not found (first load?) ex: " + e.getLocalizedMessage());
-			} catch (IOException e) {
-				logger.error(this + ": fatal exception when trying to load (deserialize)! ex: " + e.getLocalizedMessage(), e);
-				throw new UncheckedIOException(e);
 			} 
 		}
 	}
@@ -330,9 +325,7 @@ class DatabaseShard {
 				//have to do this, because FSTObjectInput.readObject(Class) throws Exception...
 				throw new IOException(e);
 			}
-		} catch (FileNotFoundException ex) {
-			//nothing to load, probably first run. do nothing
-		}
+		} 
 	}
 	
 	/*

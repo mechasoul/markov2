@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -96,7 +97,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	@Override
-	public boolean processLine(List<String> words) {
+	public boolean processLine(List<String> words) throws IOException {
 		if(words.size() == 0) {
 			return false;
 		}
@@ -193,7 +194,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	@Override
-	public String generateLine() {
+	public String generateLine() throws IOException {
 		try {
 			return this.generateLine(this.getStartShard().getRandomWeightedStartWord());
 		} catch (IllegalArgumentException e) {
@@ -203,7 +204,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	@Override
-	public String generateLine(String startingWord) {
+	public String generateLine(String startingWord) throws IOException {
 		StringBuilder sb = new StringBuilder();
 		sb.append(startingWord);
 		int wordCount = 1;
@@ -241,7 +242,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	@Override
-	public boolean contains(List<String> words) {
+	public boolean contains(List<String> words) throws IOException {
 		if(words.size() == 0) {
 			logger.info(this + ": made contains() check for empty wordlist?");
 			return true;
@@ -278,7 +279,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 //	}
 	
 	@Override
-	public boolean removeLine(List<String> words) throws FollowingWordRemovalException {
+	public boolean removeLine(List<String> words) throws FollowingWordRemovalException, IOException {
 		
 		if(words.size() == 0) {
 			logger.warn(this + ": called removeLine() with an empty word list");
@@ -306,12 +307,12 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 
 	@Override
-	public void save() {
+	public void save() throws IOException {
 		this.shardCache.save();
 	}
 	
 	@Override
-	public void load() {
+	public void load() throws IOException {
 		this.shardCache.load();
 	}
 	
@@ -485,6 +486,27 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		FileUtils.deleteDirectory(new File(this.path + File.separator + DATABASE_DIRECTORY_NAME));
 		this.load();
 		logger.info(this + ": finished clearing database");
+	}
+	
+	@Override
+	public boolean isValid() {
+		/*
+		 * TODO
+		 * 1) check if all shards can be successfully loaded
+		 * 2)generate a bunch of lines, which should expose any errors if they exist
+		 * 
+		 * can check shards by getting all .database files in database directory and
+		 * splitting filename at "." to get that file's prefix
+		 * then call shardcache.get() or whatever with the prefix and thatll load
+		 */
+		try (DirectoryStream<Path> stream = Files.newDirectoryStream(Paths.get(this.path + File.separator + DATABASE_DIRECTORY_NAME), "*.database")) {
+			stream.forEach(databaseShardFile -> {
+				this.shardCache.get(databaseShardFile.getFileName().toString().split("\\.")[0]);
+			});
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
 	}
 	
 	private Object getSaveLock() {
