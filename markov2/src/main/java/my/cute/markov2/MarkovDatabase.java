@@ -111,7 +111,7 @@ public interface MarkovDatabase {
 	 * returns true if database can successfully process and generate arbitrary lines 
 	 * without throwing an exception or encountering an error, false otherwise
 	 */
-	public boolean isValid();
+	public boolean isValid() throws IOException;
 	
 	/*
 	 * exports database contents to an easily human-readable format

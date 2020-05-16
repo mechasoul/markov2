@@ -1,6 +1,7 @@
 package my.cute.markov2.impl;
 
 import java.io.File;
+import java.io.IOException;
 
 /*
  * responsible for loading databaseshards from disk, so it can pass them
@@ -49,7 +50,7 @@ public final class ShardLoader {
 	 * 
 	 * TODO should lock on loadLock before calling load?
 	 */
-	DatabaseShard createAndLoadShard(String key) {
+	DatabaseShard createAndLoadShard(String key) throws IOException {
 		DatabaseShard shard = new DatabaseShard(this.id, key, this.path);
 		shard.load(this.saveType);
 		return shard;
@@ -68,7 +69,7 @@ public final class ShardLoader {
 		return shard;
 	}
 	
-	StartDatabaseShard loadStartShard(StartDatabaseShard shard) {
+	StartDatabaseShard loadStartShard(StartDatabaseShard shard) throws IOException {
 		synchronized(this.loadLock) {
 			shard.load(this.saveType);
 		}
@@ -80,7 +81,7 @@ public final class ShardLoader {
 	 * it's assumed that files passed in are correct database files w/ correct name structure
 	 * (ie, <key>.database)
 	 */
-	DatabaseShard getShardFromFile(File file) {
+	DatabaseShard getShardFromFile(File file) throws IOException {
 		//db files are saved as <key>.database, so this retrieves the key from the file
 		String key = file.getName().split("\\.")[0];
 		if(key.equals(MarkovDatabaseImpl.START_KEY)) {

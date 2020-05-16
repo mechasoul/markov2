@@ -3,6 +3,7 @@ package my.cute.markov2.impl;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.Map.Entry;
 import java.util.concurrent.Executor;
 
@@ -132,7 +133,7 @@ class ShardCache {
 	 * trying to do stuff during eviction/idk but doing this seems to solve it)
 	 * also see DatabaseShard.addFollowingWord()
 	 */
-	void addFollowingWord(String key, Bigram bigram, String followingWord) {
+	void addFollowingWord(String key, Bigram bigram, String followingWord) throws IOException {
 		//note the use of == here so this will break if strings aren't intern'd
 		if(key == MarkovDatabaseImpl.START_KEY) {
 			//start shard always being loaded means concurrency problems w/
@@ -141,13 +142,22 @@ class ShardCache {
 		} else {
 			//compute is always atomic
 			synchronized(this.getLoadLock()) {
-				this.cache.asMap().compute(key, (shardKey, shard) ->
-				{
-					//i dont like that i'm duplicating the cacheloader rule here
-					if(shard == null) shard = createDatabaseShard(shardKey);
-					shard.addFollowingWord(bigram, followingWord);
-					return shard;
-				});
+				try {
+					this.cache.asMap().compute(key, (shardKey, shard) ->
+					{
+						try {
+							//i dont like that i'm duplicating the cacheloader rule here
+							if(shard == null) shard = createDatabaseShard(shardKey);
+							shard.addFollowingWord(bigram, followingWord);
+							return shard;
+						} catch (IOException e) {
+							throw new UncheckedIOException(e);
+						}
+						
+					});
+				} catch (UncheckedIOException e) {
+					throw e.getCause();
+				}
 			}
 		}
 		
@@ -159,7 +169,7 @@ class ShardCache {
 	 * removed from the fws for the given bigram in the shard with the given key
 	 * (exception propagated from DatabaseShard.removeFollowingWord(Bigram, String))
 	 */
-	void removeFollowingWord(String key, Bigram bigram, String followingWord) throws FollowingWordRemovalException {
+	void removeFollowingWord(String key, Bigram bigram, String followingWord) throws FollowingWordRemovalException, IOException {
 		if(key == MarkovDatabaseImpl.START_KEY) {
 			this.startShard.removeFollowingWord(bigram, followingWord);
 		} else {
@@ -171,18 +181,22 @@ class ShardCache {
 				 */
 				this.cache.asMap().compute(key, (shardKey, shard) ->
 				{
-					if(shard == null) shard = createDatabaseShard(shardKey);
 					try {
+						if(shard == null) shard = createDatabaseShard(shardKey);
 						shard.removeFollowingWord(bigram, followingWord);
 					} catch (FollowingWordRemovalException e) {
 						//exception encountered. throw runtimeexception to catch it outside of lambda
 						throw new UncheckedFollowingWordRemovalException(e);
+					} catch (IOException e) {
+						throw new UncheckedIOException(e);
 					}
 					return shard;
 				});
 			} catch (UncheckedFollowingWordRemovalException ex) {
 				//rethrow the checked exception
 				throw ex.getCause();
+			} catch (UncheckedIOException e) {
+				throw e.getCause();
 			}
 		}
 		
@@ -218,7 +232,7 @@ class ShardCache {
 		return this.startShard;
 	}
 	
-	private DatabaseShard createDatabaseShard(String key) {
+	private DatabaseShard createDatabaseShard(String key) throws IOException {
 		return this.shardLoader.createAndLoadShard(key);
 	}
 	
@@ -281,7 +295,7 @@ class ShardCache {
 	/*
 	 * prepare cache for use
 	 */
-	void load() {
+	void load() throws IOException {
 		synchronized(this.getLoadLock()) {
 			this.shardLoader.loadStartShard(this.startShard);
 		}

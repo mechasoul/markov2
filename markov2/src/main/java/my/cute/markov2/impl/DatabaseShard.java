@@ -33,6 +33,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
 import my.cute.markov2.exceptions.FollowingWordRemovalException;
+import my.cute.markov2.exceptions.ReadObjectException;
 
 /*
  * class representing a part of the database
@@ -323,7 +324,7 @@ class DatabaseShard {
 				this.database = (DatabaseWrapper) in.readObject(DatabaseWrapper.class);
 			} catch (Exception e) {
 				//have to do this, because FSTObjectInput.readObject(Class) throws Exception...
-				throw new IOException(e);
+				throw new ReadObjectException(e);
 			}
 		} 
 	}

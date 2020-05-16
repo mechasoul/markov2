@@ -41,6 +41,7 @@ import gnu.trove.map.TObjectIntMap;
 import gnu.trove.map.hash.TObjectIntHashMap;
 import my.cute.markov2.MarkovDatabase;
 import my.cute.markov2.exceptions.FollowingWordRemovalException;
+import my.cute.markov2.exceptions.ReadObjectException;
 
 /*
  * implementation of MarkovDatabase
@@ -73,6 +74,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	static final int MAX_WORDS_PER_LINE = 256;
 	static final int DIRECTORIES_PER_KEY_WORD = 1;
 	static final int MAX_CHARS_PER_KEY_WORD = 1;
+	private static final int NUM_VALIDITY_TEST_LINES = 1000;
 	private static final String DATABASE_DIRECTORY_NAME = "~database";
 	private static final String BACKUP_DIRECTORY_NAME = "~backups";
 	
@@ -116,7 +118,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		return true;
 	}
 	
-	private void addFollowingWordForBigram(Bigram bigram, String followingWord) {
+	private void addFollowingWordForBigram(Bigram bigram, String followingWord) throws IOException {
 		this.shardCache.addFollowingWord(this.getKey(bigram), bigram, followingWord);
 	}
 	
@@ -224,7 +226,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		return sb.toString();
 	}
 	
-	private String getRandomWeightedNextWord(Bigram bigram) {
+	private String getRandomWeightedNextWord(Bigram bigram) throws IOException {
 		try {
 			return this.getShard(bigram).getFollowingWord(bigram);
 		} catch (IllegalArgumentException ex) {
@@ -302,7 +304,7 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		return true;
 	}
 	
-	private void removeFollowingWordForBigram(Bigram bigram, String followingWord) throws FollowingWordRemovalException {
+	private void removeFollowingWordForBigram(Bigram bigram, String followingWord) throws FollowingWordRemovalException, IOException {
 		this.shardCache.removeFollowingWord(this.getKey(bigram), bigram, followingWord);
 	}
 
@@ -489,23 +491,27 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 	}
 	
 	@Override
-	public boolean isValid() {
+	public boolean isValid() throws IOException {
 		/*
 		 * TODO
-		 * 1) check if all shards can be successfully loaded
-		 * 2)generate a bunch of lines, which should expose any errors if they exist
-		 * 
-		 * can check shards by getting all .database files in database directory and
-		 * splitting filename at "." to get that file's prefix
-		 * then call shardcache.get() or whatever with the prefix and thatll load
+		 * test
 		 */
 		try (DirectoryStream<Path> stream = Files.newDirectoryStream(Paths.get(this.path + File.separator + DATABASE_DIRECTORY_NAME), "*.database")) {
 			stream.forEach(databaseShardFile -> {
 				this.shardCache.get(databaseShardFile.getFileName().toString().split("\\.")[0]);
 			});
+			
+			for(int i=0; i < NUM_VALIDITY_TEST_LINES; i++) {
+				this.generateLine();
+			}
+			
+			return true;
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			if(e instanceof ReadObjectException) {
+				return false;
+			} else {
+				throw e;
+			}
 		}
 	}
 	
