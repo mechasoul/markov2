@@ -8,7 +8,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.DirectoryStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -496,9 +495,15 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 		 * TODO
 		 * test
 		 */
-		try (DirectoryStream<Path> stream = Files.newDirectoryStream(Paths.get(this.path + File.separator + DATABASE_DIRECTORY_NAME), "*.database")) {
+		try (Stream<Path> stream = Files.walk(Paths.get(this.path + File.separator + DATABASE_DIRECTORY_NAME))) {
 			stream.forEach(databaseShardFile -> {
-				this.shardCache.get(databaseShardFile.getFileName().toString().split("\\.")[0]);
+				if(databaseShardFile.toFile().isFile() && databaseShardFile.getFileName().toString().endsWith(".database")) {
+					try {
+						this.shardCache.loadShardFromFile(databaseShardFile);
+					} catch (IOException e) {
+						throw new UncheckedIOException(e);
+					}
+				}
 			});
 			
 			for(int i=0; i < NUM_VALIDITY_TEST_LINES; i++) {
@@ -506,6 +511,12 @@ public class MarkovDatabaseImpl implements MarkovDatabase {
 			}
 			
 			return true;
+		} catch (UncheckedIOException e) {
+			if(e.getCause() instanceof ReadObjectException) {
+				return false;
+			} else {
+				throw e.getCause();
+			}
 		} catch (IOException e) {
 			if(e instanceof ReadObjectException) {
 				return false;

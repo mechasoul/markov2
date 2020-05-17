@@ -2,6 +2,7 @@ package my.cute.markov2.impl;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 
 /*
  * responsible for loading databaseshards from disk, so it can pass them
@@ -84,6 +85,16 @@ public final class ShardLoader {
 	DatabaseShard getShardFromFile(File file) throws IOException {
 		//db files are saved as <key>.database, so this retrieves the key from the file
 		String key = file.getName().split("\\.")[0];
+		if(key.equals(MarkovDatabaseImpl.START_KEY)) {
+			return this.loadStartShard(this.createStartShard());
+		} else {
+			return this.createAndLoadShard(key);
+		}
+	}
+	
+	DatabaseShard getShardFromFile(Path path) throws IOException {
+		//db files are saved as <key>.database, so this retrieves the key from the file
+		String key = path.getFileName().toString().split("\\.")[0];
 		if(key.equals(MarkovDatabaseImpl.START_KEY)) {
 			return this.loadStartShard(this.createStartShard());
 		} else {

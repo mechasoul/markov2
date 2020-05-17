@@ -4,6 +4,7 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.Path;
 import java.util.Map.Entry;
 import java.util.concurrent.Executor;
 
@@ -254,6 +255,15 @@ class ShardCache {
 	 */
 	void writeDatabaseShardString(BufferedWriter writer, File file) throws IOException {
 		this.shardLoader.getShardFromFile(file).writeDatabaseStringToOutput(writer);
+	}
+	
+	/*
+	 * do not use for general purpose shard access!
+	 * this bypasses the cache entirely and should only be used if you have a specific reason
+	 * to do so, eg see MarkovDatabaseImpl.isValid()
+	 */
+	DatabaseShard loadShardFromFile(Path path) throws IOException {
+		return this.shardLoader.getShardFromFile(path);
 	}
 	
 	private void checkFixedCleanup() {
